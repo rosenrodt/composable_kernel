@@ -49,18 +49,23 @@ template <index_t BlockSize,
           index_t GredAccessesPerThreadInBlock>
 struct GridwiseReduction_xy_to_x_blockwise
 {
+    static constexpr index_t inVectorSize =
+        math::gcd(GredAccessesPerThreadInBlock, CK_PARAM_IN_VECTOR_IO_SIZE);
+
     using opReduce = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType =
         typename reduce_unary_operator<compType, op, isFirstCall, isLastCall>::preUnaryOp;
     using posUnaryOpType =
         typename reduce_unary_operator<compType, op, isFirstCall, isLastCall>::posUnaryOp;
 
-    static constexpr auto buffer2dDesc = make_naive_tensor_descriptor_packed(
-        make_tuple(Number<GredAccessesPerThreadInBlock>{}, Number<BlockSize>{}));
-    using blockwise_reduce =
-        BlockwiseReduction_2d_block_buffer<decltype(buffer2dDesc), true, opReduce, nanPropaOpt>;
+    static constexpr auto buffer1dDesc = make_naive_tensor_descriptor_packed(
+        make_tuple(Number<GredAccessesPerThreadInBlock * BlockSize>{}));
+    using blockwise_reduce = BlockwiseReduction_1d_block_buffer<decltype(buffer1dDesc),
+                                                                BlockSize,
+                                                                opReduce,
+                                                                nanPropaOpt>;
 
-    static constexpr index_t BlockBufferSize = buffer2dDesc.GetElementSize();
+    static constexpr index_t BlockBufferSize = buffer1dDesc.GetElementSize();
 
     static constexpr auto I0 = Number<0>{};
 
@@ -135,8 +140,8 @@ struct GridwiseReduction_xy_to_x_blockwise
                                             Sequence<0, 1>,
                                             1,
                                             1,
-                                            1,
-                                            1,
+                                            inVectorSize,
+                                            inVectorSize,
                                             1,
                                             1,
                                             false,
@@ -160,10 +165,7 @@ struct GridwiseReduction_xy_to_x_blockwise
             // do element-wise pre-reduction operation
             blockwise_reduce::operate_on_elements(preUnaryOp, in_block_buf);
 
-            index_t BlocksInOneOp = (reducedBlocks < toReduceBlocks - GredAccessesPerThreadInBlock)
-                                        ? GredAccessesPerThreadInBlock
-                                        : toReduceBlocks - reducedBlocks;
-            blockwise_reduce::Reduce(in_block_buf, BlocksInOneOp, accuValue_buf(I0));
+            blockwise_reduce::Reduce(in_block_buf, accuValue_buf(I0));
 
             blockwise_src_load.MoveSrcSliceWindow(src2dDesc, in_block_copy_step);
         }
@@ -292,8 +294,8 @@ struct GridwiseReduction_xy_to_x_blockwise
                                             Sequence<0, 1>,
                                             1,
                                             1,
-                                            1,
-                                            1,
+                                            inVectorSize,
+                                            inVectorSize,
                                             1,
                                             1,
                                             false,
@@ -324,15 +326,8 @@ struct GridwiseReduction_xy_to_x_blockwise
             // done here
             blockwise_reduce::operate_on_elements(preUnaryOp, in_block_val_buf);
 
-            index_t BlocksInOneOp = (reducedBlocks < toReduceBlocks - GredAccessesPerThreadInBlock)
-                                        ? GredAccessesPerThreadInBlock
-                                        : toReduceBlocks - reducedBlocks;
-
-            blockwise_reduce::Reduce2(in_block_val_buf,
-                                      in_block_idx_buf,
-                                      BlocksInOneOp,
-                                      accuValue_buf(I0),
-                                      accuIndex_buf(I0));
+            blockwise_reduce::Reduce2(
+                in_block_val_buf, in_block_idx_buf, accuValue_buf(I0), accuIndex_buf(I0));
 
             indexOffset += BlockBufferSize;
 
@@ -481,8 +476,8 @@ struct GridwiseReduction_xy_to_x_blockwise
                                             Sequence<0, 1>,
                                             1,
                                             1,
-                                            1,
-                                            1,
+                                            inVectorSize,
+                                            inVectorSize,
                                             1,
                                             1,
                                             false,
@@ -506,8 +501,8 @@ struct GridwiseReduction_xy_to_x_blockwise
                                             Sequence<0, 1>,
                                             1,
                                             1,
-                                            1,
-                                            1,
+                                            inVectorSize,
+                                            inVectorSize,
                                             1,
                                             1,
                                             false,
@@ -531,15 +526,8 @@ struct GridwiseReduction_xy_to_x_blockwise
 
             __syncthreads();
 
-            index_t BlocksInOneOp = (reducedBlocks < toReduceBlocks - GredAccessesPerThreadInBlock)
-                                        ? GredAccessesPerThreadInBlock
-                                        : toReduceBlocks - reducedBlocks;
-
-            blockwise_reduce::Reduce2(in_block_val_buf,
-                                      in_block_idx_buf,
-                                      BlocksInOneOp,
-                                      accuValue_buf(I0),
-                                      accuIndex_buf(I0));
+            blockwise_reduce::Reduce2(
+                in_block_val_buf, in_block_idx_buf, accuValue_buf(I0), accuIndex_buf(I0));
 
             blockwise_src_val_load.MoveSrcSliceWindow(src2dDesc, in_block_copy_step);
             blockwise_src_idx_load.MoveSrcSliceWindow(src2dDesc, in_block_copy_step);
