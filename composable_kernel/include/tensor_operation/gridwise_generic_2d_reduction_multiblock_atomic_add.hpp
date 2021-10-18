@@ -46,8 +46,8 @@ template <index_t BlockSize,
           index_t GredAccessesPerThreadInBlock>
 struct GridwiseReduction_xy_to_x_multiblock_atomic_add
 {
-    static constexpr index_t inVectorSize =
-        math::gcd(GredAccessesPerThreadInBlock, CK_PARAM_IN_VECTOR_IO_SIZE);
+    static constexpr index_t ReduceDimVectorSize =
+        math::gcd(GredAccessesPerThreadInBlock, CK_PARAM_REDUCE_DIM_VECTOR_SIZE);
 
     using opReduce       = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType = typename reduce_unary_operator<compType, op, true, true>::preUnaryOp;
@@ -122,7 +122,7 @@ struct GridwiseReduction_xy_to_x_multiblock_atomic_add
                                                                     ThreadBufferLengths,
                                                                     Sequence<0, 1>,
                                                                     1,
-                                                                    inVectorSize,
+                                                                    ReduceDimVectorSize,
                                                                     1,
                                                                     false>(
             src2dDesc,

@@ -49,8 +49,8 @@ template <index_t BlockSize,
           index_t GredThreadBufferLength>
 struct GridwiseReduction_xy_to_x_direct_threadwise
 {
-    static constexpr index_t inVectorSize =
-        math::gcd(GredThreadBufferLength, CK_PARAM_IN_VECTOR_IO_SIZE);
+    static constexpr index_t ReduceDimVectorSize =
+        math::gcd(GredThreadBufferLength, CK_PARAM_REDUCE_DIM_VECTOR_SIZE);
 
     using opReduce = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType =
@@ -120,7 +120,7 @@ struct GridwiseReduction_xy_to_x_direct_threadwise
                                                                     ThreadBufferLengths,
                                                                     Sequence<0, 1>,
                                                                     1,
-                                                                    inVectorSize,
+                                                                    ReduceDimVectorSize,
                                                                     1,
                                                                     false>(
             src2dDesc, make_multi_index(thread_global_1d_id, 0));
@@ -245,7 +245,7 @@ struct GridwiseReduction_xy_to_x_direct_threadwise
                                                                     ThreadBufferLengths,
                                                                     Sequence<0, 1>,
                                                                     1,
-                                                                    inVectorSize,
+                                                                    ReduceDimVectorSize,
                                                                     1,
                                                                     false>(
             src2dDesc, make_multi_index(thread_global_1d_id, 0));
@@ -394,7 +394,7 @@ struct GridwiseReduction_xy_to_x_direct_threadwise
                                                                         ThreadBufferLengths,
                                                                         Sequence<0, 1>,
                                                                         1,
-                                                                        inVectorSize,
+                                                                        ReduceDimVectorSize,
                                                                         1,
                                                                         false>(
             src2dDesc, make_multi_index(thread_global_1d_id, 0));
@@ -406,7 +406,7 @@ struct GridwiseReduction_xy_to_x_direct_threadwise
                                                                         ThreadBufferLengths,
                                                                         Sequence<0, 1>,
                                                                         1,
-                                                                        inVectorSize,
+                                                                        ReduceDimVectorSize,
                                                                         1,
                                                                         false>(
             src2dDesc, make_multi_index(thread_global_1d_id, 0));
