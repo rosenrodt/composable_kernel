@@ -28,6 +28,7 @@
 
 #include "reduction_common.hpp"
 #include "reduction_operator.hpp"
+#include "reduction_functions_binop.hpp"
 #include "reduction_functions_threadwise.hpp"
 #include "reduction_functions_blockwise.hpp"
 
@@ -49,6 +50,8 @@ struct GridwiseReduction_xy_to_x_multiblock
 {
     static constexpr index_t ReduceDimVectorSize =
         math::gcd(GredAccessesPerThreadInBlock, CK_PARAM_REDUCE_DIM_VECTOR_SIZE);
+
+    static constexpr index_t InvariantDimVectorSize = CK_PARAM_INVARIANT_DIM_VECTOR_SIZE;
 
     using opReduce       = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType = typename reduce_unary_operator<compType, op, true, false>::preUnaryOp;
@@ -73,6 +76,8 @@ struct GridwiseReduction_xy_to_x_multiblock
     static constexpr auto I0 = Number<0>{};
 
     static constexpr index_t BlockChunkSize = GredAccessesPerThreadInBlock * BlockSize;
+
+    using binop = detail::binop_with_nan_check<nanPropaOpt, opReduce, compType>;
 
     template <int RunId>
     __device__ static void Run(const src2dDescType& src2dDesc,
@@ -111,16 +116,19 @@ struct GridwiseReduction_xy_to_x_multiblock
         auto workspace_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
             ws_values_global, dst1dDesc.GetLength(I0) * BlkGroupSize);
 
-        StaticBuffer<AddressSpaceEnum_t::Vgpr, compType, 1, true> accuValue_buf;
-        StaticBuffer<AddressSpaceEnum_t::Vgpr, compType, GredAccessesPerThreadInBlock, true>
-            in_thread_buf;
-
-        using threadwise_reduce = ThreadReduce<decltype(in_thread_buf), opReduce, nanPropaOpt>;
-
         auto block_reduce_buf =
             make_dynamic_buffer<AddressSpaceEnum_t::Lds>(p_block_reduce_buffer, BlockSize);
 
-        accuValue_buf(I0) = zeroVal;
+        StaticBuffer<AddressSpaceEnum_t::Vgpr,
+                     compType,
+                     InvariantDimVectorSize * GredAccessesPerThreadInBlock,
+                     true>
+            in_thread_buf;
+
+        StaticBuffer<AddressSpaceEnum_t::Vgpr, compType, InvariantDimVectorSize, true>
+            accuValue_buf;
+
+        static_for<0, InvariantDimVectorSize, 1>{}([&](auto I) { accuValue_buf(I) = zeroVal; });
 
         const auto toReduceLength = src2dDesc.GetLength(Number<1>{});
         const int divider         = origReduceLen;
@@ -137,24 +145,18 @@ struct GridwiseReduction_xy_to_x_multiblock
              BlockChunkSize) *
             BlockChunkSize;
 
-        using ThreadBufferLengths       = Sequence<1, GredAccessesPerThreadInBlock>;
+        using ThreadBufferLengths = Sequence<InvariantDimVectorSize, GredAccessesPerThreadInBlock>;
         constexpr auto ThreadBufferDesc = make_naive_tensor_descriptor_packed(
-            make_tuple(Number<1>{}, Number<GredAccessesPerThreadInBlock>{}));
+            make_tuple(Number<InvariantDimVectorSize>{}, Number<GredAccessesPerThreadInBlock>{}));
 
-        auto threadwise_src_load = ThreadwiseTensorSliceTransfer_v2<srcDataType,
-                                                                    compType,
-                                                                    src2dDescType,
-                                                                    decltype(ThreadBufferDesc),
-                                                                    ThreadBufferLengths,
-                                                                    Sequence<0, 1>,
-                                                                    1,
-                                                                    ReduceDimVectorSize,
-                                                                    1,
-                                                                    false>(
-            src2dDesc,
-            make_multi_index(blkgroup_id,
-                             block_local_id * reduceSizePerBlock +
-                                 thread_local_id * GredAccessesPerThreadInBlock));
+        auto threadwise_src_load = ThreadwiseTensorSliceTransfer_v2 < srcDataType, compType,
+             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths, Sequence<0, 1>,
+             (InvariantDimVectorSize > 1) ? 0 : 1,
+             (InvariantDimVectorSize > 1) ? InvariantDimVectorSize : ReduceDimVectorSize, 1,
+             false > (src2dDesc,
+                      make_multi_index(blkgroup_id * InvariantDimVectorSize,
+                                       block_local_id * reduceSizePerBlock +
+                                           thread_local_id * GredAccessesPerThreadInBlock));
 
         constexpr auto in_thread_copy_step = make_multi_index(0, BlockChunkSize);
 
@@ -165,28 +167,38 @@ struct GridwiseReduction_xy_to_x_multiblock
             threadwise_src_load.Run(
                 src2dDesc, src_global_buf, ThreadBufferDesc, make_tuple(I0, I0), in_thread_buf);
 
-            // do element-wise pre-reduction operation
-            threadwise_reduce::operate_on_elements(preUnaryOp, in_thread_buf);
+            static_for<0, InvariantDimVectorSize, 1>{}([&](auto I) {
+                // do element-wise pre-reduction operation
+                static_for<0, GredAccessesPerThreadInBlock, 1>{}([&](auto J) {
+                    constexpr auto offset = I * Number<GredAccessesPerThreadInBlock>{} + J;
+                    in_thread_buf(offset) = preUnaryOp(in_thread_buf[offset]);
+                });
 
-            // do the reduction on the Thread Buffer
-            threadwise_reduce::Reduce(in_thread_buf, accuValue_buf(I0));
+                // reduce on each thread-local slice
+                static_for<0, GredAccessesPerThreadInBlock, 1>{}([&](auto J) {
+                    constexpr auto offset = I * Number<GredAccessesPerThreadInBlock>{} + J;
+                    binop::calculate(accuValue_buf(I), in_thread_buf[offset]);
+                });
+            });
 
             threadwise_src_load.MoveSrcSliceWindow(src2dDesc, in_thread_copy_step);
         }
 
-        block_reduce_buf(thread_local_id) = accuValue_buf[I0];
-
-        accuValue_buf(I0) = zeroVal;
-
-        __syncthreads();
-
-        blockwise_reduce_1::Reduce(block_reduce_buf, accuValue_buf(I0));
-
-        constexpr auto ReducedDataDesc =
-            make_naive_tensor_descriptor_packed(make_tuple(Number<1>{}));
+        constexpr auto ReducedDataDesc = make_naive_tensor_descriptor_packed(
+            make_tuple(Number<InvariantDimVectorSize>{}, Number<1>{}));
 
         const auto workspace_desc =
-            make_naive_tensor_descriptor_packed(make_tuple(dst1dDesc.GetLength(I0) * BlkGroupSize));
+            make_naive_tensor_descriptor_packed(make_tuple(dst1dDesc.GetLength(I0), BlkGroupSize));
+
+        static_for<0, InvariantDimVectorSize, 1>{}([&](auto I) {
+            block_reduce_buf(thread_local_id) = accuValue_buf[I];
+
+            accuValue_buf(I) = zeroVal;
+
+            __syncthreads();
+
+            blockwise_reduce_1::Reduce(block_reduce_buf, accuValue_buf(I));
+        });
 
         // The first thread in the block stores the reduced result to the global location
         // representing the block
@@ -197,17 +209,18 @@ struct GridwiseReduction_xy_to_x_multiblock
                                                    srcDataType,
                                                    decltype(ReducedDataDesc),
                                                    decltype(workspace_desc),
-                                                   Sequence<1>,
-                                                   Sequence<0>,
+                                                   Sequence<InvariantDimVectorSize, 1>,
+                                                   Sequence<0, 1>,
                                                    0,
                                                    1,
                                                    InMemoryDataOperationEnum_t::Set,
                                                    1,
-                                                   true>(workspace_desc,
-                                                         make_multi_index(block_global_id));
+                                                   true>(
+                    workspace_desc,
+                    make_multi_index(blkgroup_id * InvariantDimVectorSize, block_local_id));
 
             threadwise_workspace_store.Run(ReducedDataDesc,
-                                           make_tuple(I0),
+                                           make_tuple(I0, I0),
                                            accuValue_buf,
                                            workspace_desc,
                                            workspace_global_buf);
