@@ -157,7 +157,7 @@ struct GridwiseReduction_xy_to_x_multiblock_atomic_add
         }
 
         constexpr auto ReducedDataDesc =
-            make_naive_tensor_descriptor_packed(make_tuple(Number<1>{}));
+            make_naive_tensor_descriptor_packed(make_tuple(Number<InvariantDimVectorSize>{}));
 
         // Each block executes a parallel reduction on the LDS, and by atomic-adding its reduced
         // output to the global location corresponding to each invariant dimension to get a
@@ -171,36 +171,37 @@ struct GridwiseReduction_xy_to_x_multiblock_atomic_add
             __syncthreads();
 
             blockwise_reduce::Reduce(block_reduce_buf, accuValue_buf(I));
+        });
 
+        static_for<0, InvariantDimVectorSize, 1>{}([&](auto I) {
             if(thread_local_id == 0)
             {
                 accuValue_buf(I) = posUnaryOp(accuValue_buf[I]);
 
                 if(!float_equal_one{}(alpha))
                     accuValue_buf(I) *= type_convert<compType>{}(alpha);
-
-                StaticBuffer<AddressSpaceEnum_t::Vgpr, dstDataType, 1, true> dstValue_buf;
-
-                dstValue_buf(I0) = type_convert<dstDataType>{}(accuValue_buf[I]);
-
-                auto threadwise_dst_store =
-                    ThreadwiseTensorSliceTransfer_v1r3<dstDataType,
-                                                       dstDataType,
-                                                       decltype(ReducedDataDesc),
-                                                       dst1dDescType,
-                                                       Sequence<1>,
-                                                       Sequence<0>,
-                                                       0,
-                                                       1,
-                                                       InMemoryDataOperationEnum_t::AtomicAdd,
-                                                       1,
-                                                       true>(
-                        dst1dDesc, make_multi_index(blkgroup_id * InvariantDimVectorSize + I()));
-
-                threadwise_dst_store.Run(
-                    ReducedDataDesc, make_tuple(I0), dstValue_buf, dst1dDesc, dst_global_buf);
             }
         });
+
+        if(thread_local_id == 0)
+        {
+            auto threadwise_dst_store =
+                ThreadwiseTensorSliceTransfer_v1r3<compType,
+                                                   dstDataType,
+                                                   decltype(ReducedDataDesc),
+                                                   dst1dDescType,
+                                                   Sequence<InvariantDimVectorSize>,
+                                                   Sequence<0>,
+                                                   InvariantDimVectorSize,
+                                                   1,
+                                                   InMemoryDataOperationEnum_t::AtomicAdd,
+                                                   1,
+                                                   true>(
+                    dst1dDesc, make_multi_index(blkgroup_id * InvariantDimVectorSize));
+
+            threadwise_dst_store.Run(
+                ReducedDataDesc, make_tuple(I0), accuValue_buf, dst1dDesc, dst_global_buf);
+        }
     };
 };
 
