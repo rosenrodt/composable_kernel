@@ -103,6 +103,64 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
             binop::calculate(accuData, tmpVal);
         }
     };
+
+    // This interface accumulates on both data values and indices
+    template <typename BufferType, typename IdxBufferType>
+    __device__ static void Reduce2(BufferType& block_val_buffer,
+                                   IdxBufferType& block_idx_buffer,
+                                   compType& accuData,
+                                   int& accuIndex,
+                                   index_t thread_dim0_cluster_id,
+                                   index_t thread_dim1_cluster_id)
+    {
+        for(index_t indOffset = 1; indOffset < dim1_thread_cluster_length; indOffset *= 2)
+        {
+            if(thread_dim1_cluster_id % (indOffset * 2) == 0)
+            {
+                // consider the thread clusters order, ensure the contiguous locations are accessed
+                // by contiguous Thread-ID
+                index_t offset1 =
+                    reorder_thread_clusters
+                        ? buffer1dDesc.CalculateOffset(
+                              make_tuple(thread_dim1_cluster_id * dim0_thread_cluster_length +
+                                         thread_dim0_cluster_id))
+                        : buffer1dDesc.CalculateOffset(
+                              make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length +
+                                         thread_dim1_cluster_id));
+                index_t offset2 =
+                    reorder_thread_clusters
+                        ? buffer1dDesc.CalculateOffset(make_tuple(
+                              (thread_dim1_cluster_id + indOffset) * dim0_thread_cluster_length +
+                              thread_dim0_cluster_id))
+                        : buffer1dDesc.CalculateOffset(
+                              make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length +
+                                         (thread_dim1_cluster_id + indOffset)));
+
+                compType opData1 = type_convert<compType>{}(block_val_buffer[offset1]);
+                compType opData2 = type_convert<compType>{}(block_val_buffer[offset2]);
+                int currIndex1   = block_idx_buffer[offset1];
+                int currIndex2   = block_idx_buffer[offset2];
+
+                binop::calculate(opData1, opData2, currIndex1, currIndex2);
+                block_val_buffer(offset1) = type_convert<compType>{}(opData1);
+                block_idx_buffer(offset1) = currIndex1;
+            }
+
+            __syncthreads();
+        }
+
+        if(thread_dim1_cluster_id == 0)
+        {
+            index_t offset = reorder_thread_clusters
+                                 ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
+                                 : buffer1dDesc.CalculateOffset(make_tuple(
+                                       thread_dim0_cluster_id * dim1_thread_cluster_length));
+            compType tmpVal = type_convert<compType>{}(block_val_buffer[offset]);
+            int tmpIndex    = block_idx_buffer[offset];
+
+            binop::calculate(accuData, tmpVal, accuIndex, tmpIndex);
+        }
+    }
 };
 
 }; // end of namespace ck

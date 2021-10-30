@@ -26,8 +26,6 @@
 #ifndef CK_GRIDWISE_GENERIC_2D_REDUCTION_MULTIBLOCK_ATOMIC_ADD_GC_HPP
 #define CK_GRIDWISE_GENERIC_2D_REDUCTION_MULTIBLOCK_ATOMIC_ADD_GC_HPP
 
-#define HIP_ENABLE_PRINTF
-
 #include "reduction_common.hpp"
 #include "reduction_operator.hpp"
 #include "reduction_functions_binop.hpp"
