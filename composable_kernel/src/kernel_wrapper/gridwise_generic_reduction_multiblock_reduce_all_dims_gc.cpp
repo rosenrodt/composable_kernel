@@ -165,7 +165,7 @@ extern "C" __global__ void gridwise_generic_reduce_1_prepare(int GridSize,
 
         const auto toReduceLen = src2dDesc.GetLength(Number<1>{});
 
-        constexpr auto copySliceLen = BlockSize * GredAccessesPerThreadInBlock;
+        constexpr auto copySliceLen = dim1_tile_length;
         const index_t reduceSizePerBlock =
             (((toReduceLen + BlkGroupSize - 1) / BlkGroupSize + copySliceLen - 1) / copySliceLen) *
             copySliceLen;

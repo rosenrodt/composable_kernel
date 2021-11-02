@@ -29,7 +29,7 @@
 #include "tensor_descriptor_helper.hpp"
 #include "data_type_enum_helper.hpp"
 #include "reduction_common.hpp"
-#include "gridwise_generic_2d_reduction_multiblock_atomic_add.hpp"
+#include "gridwise_generic_2d_reduction_multiblock_atomic_add_gc.hpp"
 #include "gridwise_generic_reduction_wrapper_common.hpp"
 
 using namespace ck;
@@ -159,7 +159,7 @@ extern "C" __global__ void gridwise_generic_reduce_1_prepare(int GridSize,
 
         const auto toReduceLen = src2dDesc.GetLength(Number<1>{});
 
-        constexpr auto copySliceLen = BlockSize * GredAccessesPerThreadInBlock;
+        constexpr auto copySliceLen = dim1_tile_length;
         const index_t reduceSizePerBlock =
             (((toReduceLen + BlkGroupSize - 1) / BlkGroupSize + copySliceLen - 1) / copySliceLen) *
             copySliceLen;
@@ -275,15 +275,15 @@ extern "C" __global__ void gridwise_generic_reduce_1(int origReduceLen,
                                                                                decltype(src2dDesc),
                                                                                decltype(dst1dDesc),
                                                                                op,
-                                                                               nanPropaOpt>
+                                                                               nanPropaOpt>;
 
-        gridwise_2d_reduce::Run(src2dDesc,
-                                dst1dDesc,
-                                origReduceLen,
-                                BlkGroupSize,
-                                alpha,
-                                static_cast<const srcDataType* const __restrict__>(p_src_global),
-                                static_cast<dstDataType* const __restrict__>(p_dst_global));
+    gridwise_2d_reduce::Run(src2dDesc,
+                            dst1dDesc,
+                            origReduceLen,
+                            BlkGroupSize,
+                            alpha,
+                            static_cast<const srcDataType* const __restrict__>(p_src_global),
+                            static_cast<dstDataType* const __restrict__>(p_dst_global));
 };
 
 extern "C" __global__ void gridwise_generic_set_out_buffer(float initVal,
