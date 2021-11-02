@@ -69,7 +69,7 @@ static_assert(num_invariantDims > 0, "Not all dimensins are reduced for this ker
 constexpr bool indexable    = reduce_binary_operator<compType, op>::indexable;
 constexpr bool need_indices = indexable && (reduceIndicesOpt != ReduceTensorIndices_t::NO_INDICES);
 
-constexpr index_t GredAccessesPerThreadInWarp = CK_PARAM_ACCESSES_PER_THREAD_INWARP; // tunable
+constexpr index_t GredAccessesPerThreadInWarp = CK_PARAM_DIM1_THREAD_SLICE_LENGTH;
 
 // helper functions using variadic template arguments
 template <index_t... Ns>

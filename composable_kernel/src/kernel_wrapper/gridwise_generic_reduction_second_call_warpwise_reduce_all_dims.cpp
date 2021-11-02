@@ -56,7 +56,7 @@ constexpr bool dst1d_need_padding = static_cast<bool>(CK_PARAM_DST1D_PADDING);
 constexpr bool indexable    = reduce_binary_operator<compType, op>::indexable;
 constexpr bool need_indices = indexable && (reduceIndicesOpt != ReduceTensorIndices_t::NO_INDICES);
 
-constexpr index_t GredAccessesPerThreadInWarp = CK_PARAM_ACCESSES_PER_THREAD_INWARP; // tunable
+constexpr index_t GredAccessesPerThreadInWarp = CK_PARAM_DIM1_THREAD_SLICE_LENGTH;
 
 extern "C" __global__ void
 gridwise_generic_reduce_2_prepare(int GridSize, int BlkGroupSize, void* __restrict__ ws_global)

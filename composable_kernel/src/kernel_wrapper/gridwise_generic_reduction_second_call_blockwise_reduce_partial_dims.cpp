@@ -60,7 +60,7 @@ constexpr bool dst1d_need_padding = static_cast<bool>(CK_PARAM_DST1D_PADDING);
 constexpr bool indexable    = reduce_binary_operator<compType, op>::indexable;
 constexpr bool need_indices = indexable && (reduceIndicesOpt != ReduceTensorIndices_t::NO_INDICES);
 
-constexpr index_t GredAccessesPerThreadInBlock = CK_PARAM_ACCESSES_PER_THREAD_INBLOCK; // tunable
+constexpr index_t GredAccessesPerThreadInBlock = CK_PARAM_DIM1_THREAD_SLICE_LENGTH;
 
 // helper functions using variadic template arguments
 template <index_t... Ns>

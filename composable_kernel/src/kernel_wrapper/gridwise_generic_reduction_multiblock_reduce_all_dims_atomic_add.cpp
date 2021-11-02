@@ -54,7 +54,7 @@ constexpr NanPropagation_t nanPropaOpt = CK_PARAM_NAN_PROPAGATE == 0
 constexpr bool src2d_need_padding = static_cast<bool>(CK_PARAM_SRC2D_PADDING);
 constexpr bool dst1d_need_padding = static_cast<bool>(CK_PARAM_DST1D_PADDING);
 
-constexpr index_t GredAccessesPerThreadInBlock = CK_PARAM_ACCESSES_PER_THREAD_INBLOCK; // tunable
+constexpr index_t GredAccessesPerThreadInBlock = CK_PARAM_DIM1_THREAD_SLICE_LENGTH;
 
 // helper functions using variadic template arguments
 template <index_t... Ns>
