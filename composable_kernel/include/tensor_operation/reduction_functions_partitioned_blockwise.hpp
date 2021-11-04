@@ -60,8 +60,11 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
                                   index_t thread_dim0_cluster_id,
                                   index_t thread_dim1_cluster_id)
     {
-        for(index_t indOffset = dim1_thread_cluster_length / 2; indOffset > 0; indOffset /= 2)
-        {
+        constexpr auto cluster_len_shift = get_shift<dim1_thread_cluster_length>();
+
+        static_for<0, cluster_len_shift, 1>{}([&](auto I) {
+            constexpr index_t indOffset = 1 << (cluster_len_shift - 1 - I());
+
             if(thread_dim1_cluster_id < indOffset)
             {
                 // consider the thread clusters order, ensure the contiguous locations are accessed
@@ -90,15 +93,18 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
             }
 
             __syncthreads();
-        }
+        });
 
-        index_t offset = reorder_thread_clusters
-                             ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
-                             : buffer1dDesc.CalculateOffset(
-                                   make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length));
-        compType tmpVal = type_convert<compType>{}(block_buffer[offset]);
+        if constexpr(cluster_len_shift > 0)
+        {
+            index_t offset = reorder_thread_clusters
+                                 ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
+                                 : buffer1dDesc.CalculateOffset(make_tuple(
+                                       thread_dim0_cluster_id * dim1_thread_cluster_length));
+            compType tmpVal = type_convert<compType>{}(block_buffer[offset]);
 
-        binop::calculate(accuData, tmpVal);
+            binop::calculate(accuData, tmpVal);
+        };
     };
 
     // This interface accumulates on both data values and indices
@@ -110,8 +116,11 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
                                    index_t thread_dim0_cluster_id,
                                    index_t thread_dim1_cluster_id)
     {
-        for(index_t indOffset = 1; indOffset < dim1_thread_cluster_length; indOffset *= 2)
-        {
+        constexpr auto cluster_len_shift = get_shift<dim1_thread_cluster_length>();
+
+        static_for<0, cluster_len_shift, 1>{}([&](auto I) {
+            constexpr index_t indOffset = 1 << I();
+
             if(thread_dim1_cluster_id % (indOffset * 2) == 0)
             {
                 // consider the thread clusters order, ensure the contiguous locations are accessed
@@ -144,16 +153,19 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
             }
 
             __syncthreads();
+        });
+
+        if constexpr(cluster_len_shift > 0)
+        {
+            index_t offset = reorder_thread_clusters
+                                 ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
+                                 : buffer1dDesc.CalculateOffset(make_tuple(
+                                       thread_dim0_cluster_id * dim1_thread_cluster_length));
+            compType tmpVal = type_convert<compType>{}(block_val_buffer[offset]);
+            int tmpIndex    = block_idx_buffer[offset];
+
+            binop::calculate(accuData, tmpVal, accuIndex, tmpIndex);
         }
-
-        index_t offset = reorder_thread_clusters
-                             ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
-                             : buffer1dDesc.CalculateOffset(
-                                   make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length));
-        compType tmpVal = type_convert<compType>{}(block_val_buffer[offset]);
-        int tmpIndex    = block_idx_buffer[offset];
-
-        binop::calculate(accuData, tmpVal, accuIndex, tmpIndex);
     }
 };
 
