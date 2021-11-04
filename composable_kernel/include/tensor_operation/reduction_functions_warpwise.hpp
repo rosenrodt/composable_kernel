@@ -50,6 +50,8 @@ struct WarpReduce
     static constexpr bool have_builtin_shuffle =
         std::is_same<compType, float>::value || std::is_same<compType, double>::value;
 
+    static constexpr auto I0 = Number<0>{};
+
     // This interface does not accumulate on indices
     __device__ static void Reduce(const BufferType& thread_buffer, compType& accuData)
     {
@@ -117,8 +119,8 @@ struct WarpReduce
 
             __syncthreads();
         }
-        if(thread_inwarp_id == 0)
-            binop::calculate(accuData, myBuffer[0]);
+
+        binop::calculate(accuData, myBuffer[0]);
     };
 
     // This interface accumulates on both data values and indices and is called by Direct_WarpWise
@@ -138,12 +140,13 @@ struct WarpReduce
                                         int& accuIndex,
                                         int indexStart)
     {
-        compType lAccuData       = opReduce::GetReductionZeroVal();
-        int lAccuIndex           = 0;
         index_t thread_inwarp_id = get_thread_local_1d_id() % warpSize;
 
-        static_for<0, ThreadBufferLen, 1>{}([&](auto I) {
-            int currIndex = thread_inwarp_id * ThreadBufferLen + I + indexStart;
+        compType lAccuData = thread_buffer[I0];
+        int lAccuIndex     = thread_inwarp_id * ThreadBufferLen + indexStart;
+
+        static_for<1, ThreadBufferLen, 1>{}([&](auto I) {
+            int currIndex = thread_inwarp_id * ThreadBufferLen + I() + indexStart;
             binop::calculate(lAccuData, thread_buffer[I], lAccuIndex, currIndex);
         });
 
@@ -159,8 +162,7 @@ struct WarpReduce
             __all(1);
         }
 
-        if(thread_inwarp_id == 0)
-            binop::calculate(accuData, lAccuData, accuIndex, lAccuIndex);
+        binop::calculate(accuData, lAccuData, accuIndex, lAccuIndex);
     };
 
     // This interface implementation does not use HIP built-in device shuffling functions since for
@@ -170,14 +172,15 @@ struct WarpReduce
                                         int& accuIndex,
                                         int indexStart)
     {
-        compType lAccuData       = opReduce::GetReductionZeroVal();
-        int lAccuIndex           = 0;
         index_t thread_id        = get_thread_local_1d_id();
         index_t warpId           = thread_id / warpSize;
         index_t thread_inwarp_id = thread_id % warpSize;
 
-        static_for<0, ThreadBufferLen, 1>{}([&](auto I) {
-            int currIndex = thread_inwarp_id * ThreadBufferLen + I + indexStart;
+        compType lAccuData = thread_buffer[I0];
+        int lAccuIndex     = thread_inwarp_id * ThreadBufferLen + indexStart;
+
+        static_for<1, ThreadBufferLen, 1>{}([&](auto I) {
+            int currIndex = thread_inwarp_id * ThreadBufferLen + I() + indexStart;
             binop::calculate(lAccuData, thread_buffer[I], lAccuIndex, currIndex);
         });
 
@@ -207,8 +210,7 @@ struct WarpReduce
             __syncthreads();
         }
 
-        if(thread_inwarp_id == 0)
-            binop::calculate(accuData, myDataBuffer[0], accuIndex, myIndicesBuffer[0]);
+        binop::calculate(accuData, myDataBuffer[0], accuIndex, myIndicesBuffer[0]);
     };
 
     // cppcheck-suppress constParameter
@@ -259,6 +261,8 @@ struct WarpReduceWithIndicesInput
     static constexpr bool have_builtin_shuffle =
         std::is_same<compType, float>::value || std::is_same<compType, double>::value;
 
+    static constexpr auto I0 = Number<0>{};
+
     // This interface accumulates on both data values and indices and is called by Direct_WarpWise
     // reduction method at second-time reduction
     __device__ static void Reduce(const BufferType& thread_buffer,
@@ -278,10 +282,10 @@ struct WarpReduceWithIndicesInput
                                        compType& accuData,
                                        int& accuIndex)
     {
-        compType lAccuData = opReduce::GetReductionZeroVal();
-        int lAccuIndex     = 0;
+        compType lAccuData = thread_buffer[I0];
+        int lAccuIndex     = thread_indices_buffer[I0];
 
-        static_for<0, ThreadBufferLen, 1>{}([&](auto I) {
+        static_for<1, ThreadBufferLen, 1>{}([&](auto I) {
             binop::calculate(lAccuData, thread_buffer[I], lAccuIndex, thread_indices_buffer[I]);
         });
 
@@ -307,13 +311,14 @@ struct WarpReduceWithIndicesInput
                                        compType& accuData,
                                        int& accuIndex)
     {
-        compType lAccuData       = opReduce::GetReductionZeroVal();
-        int lAccuIndex           = 0;
         index_t thread_id        = get_thread_local_1d_id();
         index_t warpId           = thread_id / warpSize;
         index_t thread_inwarp_id = thread_id % warpSize;
 
-        static_for<0, ThreadBufferLen, 1>{}([&](auto I) {
+        compType lAccuData = thread_buffer[I0];
+        int lAccuIndex     = thread_indices_buffer[I0];
+
+        static_for<1, ThreadBufferLen, 1>{}([&](auto I) {
             binop::calculate(lAccuData, thread_buffer[I], lAccuIndex, thread_indices_buffer[I]);
         });
 
@@ -343,8 +348,7 @@ struct WarpReduceWithIndicesInput
             __syncthreads();
         }
 
-        if(thread_inwarp_id == 0)
-            binop::calculate(accuData, myDataBuffer[0], accuIndex, myIndicesBuffer[0]);
+        binop::calculate(accuData, myDataBuffer[0], accuIndex, myIndicesBuffer[0]);
     };
 
     // cppcheck-suppress constParameter

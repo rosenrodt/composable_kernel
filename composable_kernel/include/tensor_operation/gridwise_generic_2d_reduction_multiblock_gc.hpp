@@ -29,7 +29,6 @@
 #include "reduction_common.hpp"
 #include "reduction_operator.hpp"
 #include "reduction_functions_binop.hpp"
-#include "reduction_functions_threadwise.hpp"
 #include "reduction_functions_partitioned_blockwise.hpp"
 
 #include "blockwise_tensor_slice_transfer.hpp"
@@ -297,11 +296,6 @@ struct GridwiseReduction_xy_to_x_multiblock
             accuValue_buf;
         StaticBuffer<AddressSpaceEnum_t::Vgpr, int, dim0_thread_slice_length, true> accuIndex_buf;
 
-        static_for<0, dim0_thread_slice_length, 1>{}([&](auto I) {
-            accuValue_buf(I) = zeroVal;
-            accuIndex_buf(I) = 0;
-        });
-
         const auto toReduceLength = src2dDesc.GetLength(Number<1>{});
         const int divider         = origReduceLen;
 
@@ -343,30 +337,35 @@ struct GridwiseReduction_xy_to_x_multiblock
 
         int indexOffset = block_local_id * reduceSizePerBlock;
 
+        static_for<0, dim0_thread_slice_length, 1>{}([&](auto I) {
+            accuValue_buf(I) = zeroVal;
+            accuIndex_buf(I) = 0;
+        });
+
         const index_t toReduceTiles = reduceSizePerBlock / dim1_BlockTileSize;
 
         for(index_t reducedTiles = 0; reducedTiles < toReduceTiles; reducedTiles++)
         {
+            // load the thread slice
             threadwise_src_load.Run(
                 src2dDesc, src_global_buf, ThreadBufferDesc, make_tuple(I0, I0), in_thread_val_buf);
 
             static_for<0, dim0_thread_slice_length, 1>{}([&](auto I) {
-                // initialize the indices for the per-thread to-reduce values
                 static_for<0, dim1_thread_slice_length, 1>{}([&](auto J) {
                     constexpr auto offset = I * Number<dim1_thread_slice_length>{} + J;
-                    in_thread_idx_buf(offset) =
-                        indexOffset + thread_dim1_cluster_id * dim1_thread_slice_length;
-                });
 
-                // do element-wise pre-reduction operation
-                static_for<0, dim1_thread_slice_length, 1>{}([&](auto J) {
-                    constexpr auto offset     = I * Number<dim1_thread_slice_length>{} + J;
+                    // initialize the indices for the per-thread to-reduce values
+                    in_thread_idx_buf(offset) =
+                        indexOffset + thread_dim1_cluster_id * dim1_thread_slice_length + J();
+
+                    // do element-wise pre-reduction operation
                     in_thread_val_buf(offset) = preUnaryOp(in_thread_val_buf[offset]);
                 });
 
-                // reduce on each thread-local slice
                 static_for<0, dim1_thread_slice_length, 1>{}([&](auto J) {
                     constexpr auto offset = I * Number<dim1_thread_slice_length>{} + J;
+
+                    // reduce on the dim1 thread slice
                     binop::calculate(accuValue_buf(I),
                                      in_thread_val_buf[offset],
                                      accuIndex_buf(I),
@@ -388,9 +387,6 @@ struct GridwiseReduction_xy_to_x_multiblock
                     block_reduce_idx_buf(thread_dim0_cluster_id * dim1_thread_cluster_length +
                                          thread_dim1_cluster_id) = accuIndex_buf[I];
                 }
-
-                accuValue_buf(I) = zeroVal;
-                accuIndex_buf(I) = 0;
 
                 __syncthreads();
 
