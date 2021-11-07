@@ -58,6 +58,8 @@ struct GridwiseReduction_xy_to_x_multiblock
     static constexpr index_t dim1_VectorSize =
         math::gcd(dim1_thread_slice_length, CK_PARAM_REDUCE_DIM_VECTOR_SIZE);
 
+    static constexpr bool dim0_is_fastest = static_cast<bool>(CK_PARAM_INVARIANT_DIM_IS_FASTEST);
+
     using opReduce       = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType = typename reduce_unary_operator<compType, op, true, false>::preUnaryOp;
     using posUnaryOpType = typename reduce_unary_operator<compType, op, true, false>::posUnaryOp;
@@ -162,9 +164,9 @@ struct GridwiseReduction_xy_to_x_multiblock
             make_tuple(Number<dim0_thread_slice_length>{}, Number<dim1_thread_slice_length>{}));
 
         auto threadwise_src_load = ThreadwiseTensorSliceTransfer_v2 < srcDataType, compType,
-             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths, Sequence<0, 1>,
-             (dim0_VectorSize > 1) ? 0 : 1,
-             (dim0_VectorSize > 1) ? dim0_VectorSize : dim1_VectorSize, 1,
+             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths,
+             typename conditional<dim0_is_fastest, Sequence<1, 0>, Sequence<0, 1>>::type,
+             dim0_is_fastest ? 0 : 1, dim0_is_fastest ? dim0_VectorSize : dim1_VectorSize, 1,
              false > (src2dDesc,
                       make_multi_index(blkgroup_id * dim0_BlockTileSize +
                                            thread_dim0_cluster_id * dim0_thread_slice_length,
@@ -324,9 +326,9 @@ struct GridwiseReduction_xy_to_x_multiblock
             make_tuple(Number<dim0_thread_slice_length>{}, Number<dim1_thread_slice_length>{}));
 
         auto threadwise_src_load = ThreadwiseTensorSliceTransfer_v2 < srcDataType, compType,
-             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths, Sequence<0, 1>,
-             (dim0_VectorSize > 1) ? 0 : 1,
-             (dim0_VectorSize > 1) ? dim0_VectorSize : dim1_VectorSize, 1,
+             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths,
+             typename conditional<dim0_is_fastest, Sequence<1, 0>, Sequence<0, 1>>::type,
+             dim0_is_fastest ? 0 : 1, dim0_is_fastest ? dim0_VectorSize : dim1_VectorSize, 1,
              false > (src2dDesc,
                       make_multi_index(blkgroup_id * dim0_BlockTileSize +
                                            thread_dim0_cluster_id * dim0_thread_slice_length,
@@ -362,40 +364,43 @@ struct GridwiseReduction_xy_to_x_multiblock
                     in_thread_val_buf(offset) = preUnaryOp(in_thread_val_buf[offset]);
                 });
 
+                compType tmpValue = zeroVal;
+                int tmpIndex      = 0;
+
                 static_for<0, dim1_thread_slice_length, 1>{}([&](auto J) {
                     constexpr auto offset = I * Number<dim1_thread_slice_length>{} + J;
 
                     // reduce on the dim1 thread slice
-                    binop::calculate(accuValue_buf(I),
-                                     in_thread_val_buf[offset],
-                                     accuIndex_buf(I),
-                                     in_thread_idx_buf[offset]);
+                    binop::calculate(
+                        tmpValue, in_thread_val_buf[offset], tmpIndex, in_thread_idx_buf[offset]);
                 });
 
                 // store thread local value to LDS for parallel reduction
                 if constexpr(reorder_thread_clusters)
                 {
                     block_reduce_val_buf(thread_dim1_cluster_id * dim0_thread_cluster_length +
-                                         thread_dim0_cluster_id) = accuValue_buf[I];
+                                         thread_dim0_cluster_id) = tmpValue;
                     block_reduce_idx_buf(thread_dim1_cluster_id * dim0_thread_cluster_length +
-                                         thread_dim0_cluster_id) = accuIndex_buf[I];
+                                         thread_dim0_cluster_id) = tmpIndex;
                 }
                 else
                 {
                     block_reduce_val_buf(thread_dim0_cluster_id * dim1_thread_cluster_length +
-                                         thread_dim1_cluster_id) = accuValue_buf[I];
+                                         thread_dim1_cluster_id) = tmpValue;
                     block_reduce_idx_buf(thread_dim0_cluster_id * dim1_thread_cluster_length +
-                                         thread_dim1_cluster_id) = accuIndex_buf[I];
+                                         thread_dim1_cluster_id) = tmpIndex;
                 }
 
                 __syncthreads();
 
                 blockwise_reduce::Reduce2(block_reduce_val_buf,
                                           block_reduce_idx_buf,
-                                          accuValue_buf(I),
-                                          accuIndex_buf(I),
+                                          tmpValue,
+                                          tmpIndex,
                                           thread_dim0_cluster_id,
                                           thread_dim1_cluster_id);
+
+                binop::calculate(accuValue_buf(I), tmpValue, accuIndex_buf(I), tmpIndex);
             });
 
             threadwise_src_load.MoveSrcSliceWindow(src2dDesc, in_thread_copy_step);

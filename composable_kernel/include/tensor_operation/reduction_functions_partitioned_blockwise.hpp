@@ -49,6 +49,9 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
 
     static_assert(BlockSize == dim0_thread_cluster_length * dim1_thread_cluster_length,
                   "The product of cluster lengths should be same as BlockSize!");
+    static_assert(dim1_thread_cluster_length > 1,
+                  "Parallel reduction need work on at least two elements");
+
     static_assert(buffer1dDesc.GetElementSize() == BlockSize,
                   "The buffer size should be the same as BlockSize!");
 
@@ -95,16 +98,12 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
             __syncthreads();
         });
 
-        if constexpr(cluster_len_shift > 0)
-        {
-            index_t offset = reorder_thread_clusters
-                                 ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
-                                 : buffer1dDesc.CalculateOffset(make_tuple(
-                                       thread_dim0_cluster_id * dim1_thread_cluster_length));
-            compType tmpVal = type_convert<compType>{}(block_buffer[offset]);
+        index_t offset = reorder_thread_clusters
+                             ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
+                             : buffer1dDesc.CalculateOffset(
+                                   make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length));
 
-            binop::calculate(accuData, tmpVal);
-        };
+        accuData = type_convert<compType>{}(block_buffer[offset]);
     };
 
     // This interface accumulates on both data values and indices
@@ -155,17 +154,13 @@ struct PartitionedBlockwiseReduction_1d_block_buffer
             __syncthreads();
         });
 
-        if constexpr(cluster_len_shift > 0)
-        {
-            index_t offset = reorder_thread_clusters
-                                 ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
-                                 : buffer1dDesc.CalculateOffset(make_tuple(
-                                       thread_dim0_cluster_id * dim1_thread_cluster_length));
-            compType tmpVal = type_convert<compType>{}(block_val_buffer[offset]);
-            int tmpIndex    = block_idx_buffer[offset];
+        index_t offset = reorder_thread_clusters
+                             ? buffer1dDesc.CalculateOffset(make_tuple(thread_dim0_cluster_id))
+                             : buffer1dDesc.CalculateOffset(
+                                   make_tuple(thread_dim0_cluster_id * dim1_thread_cluster_length));
 
-            binop::calculate(accuData, tmpVal, accuIndex, tmpIndex);
-        }
+        accuData  = type_convert<compType>{}(block_val_buffer[offset]);
+        accuIndex = block_idx_buffer[offset];
     }
 };
 

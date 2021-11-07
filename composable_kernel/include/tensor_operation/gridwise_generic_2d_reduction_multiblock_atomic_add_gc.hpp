@@ -57,6 +57,8 @@ struct GridwiseReduction_xy_to_x_multiblock_atomic_add
     static constexpr index_t dim1_VectorSize =
         math::gcd(dim1_thread_slice_length, CK_PARAM_REDUCE_DIM_VECTOR_SIZE);
 
+    static constexpr bool dim0_is_fastest = static_cast<bool>(CK_PARAM_INVARIANT_DIM_IS_FASTEST);
+
     using opReduce       = typename reduce_binary_operator<compType, op>::opType;
     using preUnaryOpType = typename reduce_unary_operator<compType, op, true, true>::preUnaryOp;
     using posUnaryOpType = typename reduce_unary_operator<compType, op, true, true>::posUnaryOp;
@@ -143,9 +145,9 @@ struct GridwiseReduction_xy_to_x_multiblock_atomic_add
             make_tuple(Number<dim0_thread_slice_length>{}, Number<dim1_thread_slice_length>{}));
 
         auto threadwise_src_load = ThreadwiseTensorSliceTransfer_v2 < srcDataType, compType,
-             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths, Sequence<0, 1>,
-             (dim0_VectorSize > 1) ? 0 : 1,
-             (dim0_VectorSize > 1) ? dim0_VectorSize : dim1_VectorSize, 1,
+             src2dDescType, decltype(ThreadBufferDesc), ThreadBufferLengths,
+             typename conditional<dim0_is_fastest, Sequence<1, 0>, Sequence<0, 1>>::type,
+             dim0_is_fastest ? 0 : 1, dim0_is_fastest ? dim0_VectorSize : dim1_VectorSize, 1,
              false > (src2dDesc,
                       make_multi_index(blkgroup_id * dim0_BlockTileSize +
                                            thread_dim0_cluster_id * dim0_thread_slice_length,
