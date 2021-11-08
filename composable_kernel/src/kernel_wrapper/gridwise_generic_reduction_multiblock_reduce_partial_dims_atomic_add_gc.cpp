@@ -259,19 +259,19 @@ using refType_dst1dDesc_padded =
 template <bool need_padding>
 static __device__ auto get_reduction_src2d_descriptor(const void* p_src2dDesc)
 {
-    if constexpr(need_padding)
-        return (*reinterpret_cast<const refType_src2dDesc_padded_34*>(p_src2dDesc));
-    else
-        return (*reinterpret_cast<const refType_src2dDesc*>(p_src2dDesc));
+    using src2dDescType =
+        typename conditional<need_padding, refType_src2dDesc_padded_34, refType_src2dDesc>::type;
+
+    return (*reinterpret_cast<const src2dDescType*>(p_src2dDesc));
 };
 
 template <bool need_padding>
 static __device__ auto get_reduction_dst1d_descriptor(const void* p_dst1dDesc)
 {
-    if constexpr(need_padding)
-        return (*reinterpret_cast<const refType_dst1dDesc_padded*>(p_dst1dDesc));
-    else
-        return (*reinterpret_cast<const refType_dst1dDesc*>(p_dst1dDesc));
+    using dst1dDescType =
+        typename conditional<need_padding, refType_dst1dDesc_padded, refType_dst1dDesc>::type;
+
+    return (*reinterpret_cast<const dst1dDescType*>(p_dst1dDesc));
 };
 
 extern "C" __global__ void gridwise_generic_reduce_1(int origReduceLen,
