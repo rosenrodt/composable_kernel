@@ -260,7 +260,7 @@ struct Gridwise_1d_global_buffer_set_value
         auto global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
             p_global, global1dBufferDesc.GetElementSpaceSize());
 
-        if(thread_local_id < global1dBufferDesc.GetElementSize())
+        if(thread_global_id < global1dBufferDesc.GetElementSize())
         {
 
             auto threadwise_store =
