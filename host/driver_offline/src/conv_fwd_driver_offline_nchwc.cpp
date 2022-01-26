@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
     constexpr auto C1             = Number<8>{};
     constexpr auto K0             = Number<1>{};
     constexpr auto K1             = Number<4>{};
-#elif 1
+#elif 0
     constexpr auto N              = Number<1>{};
     constexpr auto Hi             = Number<1080>{};
     constexpr auto Wi             = Number<1920>{};
@@ -192,7 +192,7 @@ int main(int argc, char* argv[])
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<2>{};
     constexpr auto K1 = Number<8>{};
-#elif 0
+#elif 1
     constexpr auto N  = Number<128>{};
     constexpr auto Hi = Number<270>{};
     constexpr auto Wi = Number<480>{};
@@ -228,7 +228,7 @@ int main(int argc, char* argv[])
     constexpr auto Wo = (Wi + in_left_pad_w + in_right_pad_w - XEff) / conv_stride_w + I1;
 #endif
 
-#if 0
+#if 1
     using in_data_t  = float;
     using acc_data_t = float;
     using out_data_t = float;
@@ -290,35 +290,30 @@ int main(int argc, char* argv[])
         // no initialization
         break;
     case 1:
-        in.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
-        wei.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
-        bias.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+        wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
         break;
     case 2:
-        in.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
-        wei.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
-        bias.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+        wei.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
         break;
     case 3:
-        in.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
-        wei.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
-        bias.GenerateTensorValue(GeneratorTensor_1{}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
+        wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
         break;
     case 4:
-        in.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
-        wei.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
-        bias.GenerateTensorValue(GeneratorTensor_2{-5, 5}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
+        wei.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
         break;
     case 5:
-        in.GenerateTensorValue(GeneratorTensor_3<float>{0.0, 1.0}, num_thread);
-        wei.GenerateTensorValue(GeneratorTensor_3<float>{-0.5, 0.5}, num_thread);
-        bias.GenerateTensorValue(GeneratorTensor_3<float>{-0.5, 0.5}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_3<in_data_t>{0.0, 1.0}, num_thread);
+        wei.GenerateTensorValue(GeneratorTensor_3<in_data_t>{-0.5, 0.5}, num_thread);
         break;
     default:
-        in.GenerateTensorValue(GeneratorTensor_2{1, 5}, num_thread);
+        in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{1, 5}, num_thread);
 
         auto gen_wei = [](auto... is) {
-            return GeneratorTensor_2{1, 5}(is...) * GeneratorTensor_Checkboard{}(is...);
+            return GeneratorTensor_2<in_data_t>{1, 5}(is...) * GeneratorTensor_Checkboard{}(is...);
         };
         wei.GenerateTensorValue(gen_wei, num_thread);
     }

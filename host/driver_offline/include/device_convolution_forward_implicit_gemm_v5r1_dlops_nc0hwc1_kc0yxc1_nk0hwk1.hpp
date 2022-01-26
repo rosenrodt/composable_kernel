@@ -63,7 +63,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
     wei_k_c0_y_x_c1_device_buf.ToDevice(wei_k_c0_y_x_c1.mData.data());
     bias_k0_k1_device_buf.ToDevice(bias_k0_k1.mData.data());
 
-    constexpr index_t InWeiVectorSize = 8;
+    constexpr index_t InWeiVectorSize = 1;
 
     if(C1 % InWeiVectorSize != 0)
     {
