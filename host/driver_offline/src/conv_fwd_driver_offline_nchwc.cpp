@@ -31,20 +31,18 @@ template <typename TIn,
           typename InRightPads>
 void host_direct_convolution_nchwc(const Tensor<TIn>& in,
                                    const Tensor<TWei>& wei,
-                                   const Tensor<TOut>& bias,
                                    Tensor<TOut>& out,
                                    const ConvStrides& conv_strides,
                                    const ConvDilations& conv_dilations,
                                    const InLeftPads& in_left_pads,
-                                   const InRightPads&,
-                                   const ck::ActivTypeEnum_t activ_type)
+                                   const InRightPads&)
 {
     using namespace ck;
 
     constexpr auto I0 = Number<0>{};
     constexpr auto I1 = Number<1>{};
 
-    auto f_nchw = [&](auto n, auto k0, auto ho, auto wo, auto k1) {
+    auto f_nchwc = [&](auto n, auto k0, auto ho, auto wo, auto k1) {
         double v    = 0;
         const int k = k0 * out.mDesc.GetLengths()[4] + k1;
 
@@ -68,11 +66,11 @@ void host_direct_convolution_nchwc(const Tensor<TIn>& in,
                 }
             }
         }
-        v += bias(k0, k1);
-        out(n, k0, ho, wo, k1) = activ(v, activ_type);
+
+        out(n, k0, ho, wo, k1) = v;
     };
 
-    make_ParallelTensorFunctor(f_nchw,
+    make_ParallelTensorFunctor(f_nchwc,
                                out.mDesc.GetLengths()[0],
                                out.mDesc.GetLengths()[1],
                                out.mDesc.GetLengths()[2],
@@ -101,8 +99,6 @@ int main(int argc, char* argv[])
                "RightPx\n");
         exit(1);
     }
-
-    constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::LeakyRelu;
 
     const ConvForwardAlgo algo = static_cast<ConvForwardAlgo>(std::stoi(argv[1]));
     const bool do_verification = std::stoi(argv[2]);
@@ -149,9 +145,6 @@ int main(int argc, char* argv[])
     const bool do_log          = std::stoi(argv[4]);
     const int nrepeat          = std::stoi(argv[5]);
 
-    // constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::Sigmoid;
-    constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::LeakyRelu;
-
 #if 0
     constexpr auto N              = Number<1>{};
     constexpr auto Hi             = Number<1080>{};
@@ -196,8 +189,8 @@ int main(int argc, char* argv[])
     constexpr auto N  = Number<128>{};
     constexpr auto Hi = Number<270>{};
     constexpr auto Wi = Number<480>{};
-    constexpr auto Y  = Number<1>{};
-    constexpr auto X  = Number<1>{};
+    constexpr auto Y  = Number<3>{};
+    constexpr auto X  = Number<3>{};
     constexpr auto C0 = Number<2>{};
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<2>{};
@@ -242,8 +235,7 @@ int main(int argc, char* argv[])
     using out_data_t = int8_t;
 #endif
 
-    std::vector<std::size_t> in_lengths_host(5), wei_lengths_host(5), out_lengths_host(5),
-        bias_lengths_host(2);
+    std::vector<std::size_t> in_lengths_host(5), wei_lengths_host(5), out_lengths_host(5);
 
     in_lengths_host[0] = static_cast<std::size_t>(N);
     in_lengths_host[1] = static_cast<std::size_t>(C0);
@@ -263,18 +255,13 @@ int main(int argc, char* argv[])
     out_lengths_host[3] = static_cast<std::size_t>(Wo);
     out_lengths_host[4] = static_cast<std::size_t>(K1);
 
-    bias_lengths_host[0] = static_cast<std::size_t>(K0);
-    bias_lengths_host[1] = static_cast<std::size_t>(K1);
-
     Tensor<in_data_t> in(in_lengths_host);
     Tensor<in_data_t> wei(wei_lengths_host);
-    Tensor<out_data_t> bias(bias_lengths_host);
     Tensor<out_data_t> out_host(out_lengths_host);
     Tensor<out_data_t> out_device(out_lengths_host);
 
     ostream_HostTensorDescriptor(in.mDesc, std::cout << "in: ");
     ostream_HostTensorDescriptor(wei.mDesc, std::cout << "wei: ");
-    ostream_HostTensorDescriptor(bias.mDesc, std::cout << "bias: ");
     ostream_HostTensorDescriptor(out_host.mDesc, std::cout << "out: ");
 
     print_array("InLeftPads", make_tuple(in_left_pad_h, in_left_pad_w));
@@ -343,8 +330,7 @@ int main(int argc, char* argv[])
 
         device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1<in_data_t,
                                                                                     acc_data_t,
-                                                                                    out_data_t,
-                                                                                    activ_type>(
+                                                                                    out_data_t>(
             tmp[I0],
             tmp[I1],
             tmp[I2],
@@ -354,7 +340,6 @@ int main(int argc, char* argv[])
             tmp[I6],
             in,
             wei,
-            bias,
             out_device,
             nrepeat);
     }
@@ -364,13 +349,11 @@ int main(int argc, char* argv[])
     {
         host_direct_convolution_nchwc(in,
                                       wei,
-                                      bias,
                                       out_host,
                                       make_tuple(conv_stride_h, conv_stride_w),
                                       make_tuple(conv_dilation_h, conv_dilation_w),
                                       make_tuple(in_left_pad_h, in_left_pad_w),
-                                      make_tuple(in_right_pad_h, in_right_pad_w),
-                                      activ_type);
+                                      make_tuple(in_right_pad_h, in_right_pad_w));
 
         check_error(out_host, out_device);
 
@@ -378,7 +361,6 @@ int main(int argc, char* argv[])
         {
             LogRangeAsType<float>(std::cout << "in : ", in.mData, ",") << std::endl;
             LogRangeAsType<float>(std::cout << "wei: ", wei.mData, ",") << std::endl;
-            LogRangeAsType<float>(std::cout << "bias: ", bias.mData, ",") << std::endl;
             LogRangeAsType<float>(std::cout << "out_host  : ", out_host.mData, ",") << std::endl;
             LogRangeAsType<float>(std::cout << "out_device: ", out_device.mData, ",") << std::endl;
         }

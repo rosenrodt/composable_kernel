@@ -6,7 +6,6 @@
 template <typename TInWei,
           typename TAcc,
           typename TOut,
-          ck::ActivTypeEnum_t activ_type,
           typename InLengths,
           typename WeiLengths,
           typename OutLengths,
@@ -24,7 +23,6 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
     const InRightPads& in_right_pads,
     const Tensor<TInWei>& in_n_c0_hi_wi_c1,
     const Tensor<TInWei>& wei_k_c0_y_x_c1,
-    const Tensor<TOut>& bias_k0_k1,
     Tensor<TOut>& out_n_k0_ho_wo_k1,
     ck::index_t nrepeat)
 {
@@ -56,19 +54,10 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
     DeviceMem in_n_c0_hi_wi_c1_device_buf(sizeof(TInWei) *
                                           in_n_c0_hi_wi_c1.mDesc.GetElementSpace());
     DeviceMem wei_k_c0_y_x_c1_device_buf(sizeof(TInWei) * wei_k_c0_y_x_c1.mDesc.GetElementSpace());
-    DeviceMem bias_k0_k1_device_buf(sizeof(TOut) * bias_k0_k1.mDesc.GetElementSpace());
     DeviceMem out_n_k0_ho_wo_k1_device_buf(sizeof(TOut) *
                                            out_n_k0_ho_wo_k1.mDesc.GetElementSpace());
     in_n_c0_hi_wi_c1_device_buf.ToDevice(in_n_c0_hi_wi_c1.mData.data());
     wei_k_c0_y_x_c1_device_buf.ToDevice(wei_k_c0_y_x_c1.mData.data());
-    bias_k0_k1_device_buf.ToDevice(bias_k0_k1.mData.data());
-
-    constexpr index_t InWeiVectorSize = 1;
-
-    if(C1 % InWeiVectorSize != 0)
-    {
-        throw std::runtime_error("wrong! C1 cannot be divided by InWeiVectorSize");
-    }
 
 #if 0
     constexpr index_t BlockSize = 256;
@@ -102,8 +91,8 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
     constexpr index_t HoPerBlock = 8;
     constexpr index_t WoPerBlock = 32;
 
-    constexpr index_t E1         = 2 * 9;
-    constexpr index_t E2         = 1;
+    constexpr index_t E1         = C0 * Y * X;
+    constexpr index_t E2         = C1;
     constexpr index_t K2         = 2;
     constexpr index_t E1PerBlock = 2;
 
@@ -112,20 +101,15 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, 9, 1, 1, E2>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
         Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
 
-    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = E2;
-    constexpr index_t ABlockTransferDstScalarPerVector_E2  = E2;
-    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = E2;
-    constexpr index_t CThreadTransferDstScalarPerVector_K  = InWeiVectorSize;
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = 4;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = 4;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = 4;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = 4;
 #endif
-
-    if(KPerThread % InWeiVectorSize != 0)
-    {
-        throw std::runtime_error("wrong! C1 cannot be divided by InWeiVectorSize");
-    }
 
     const auto in_n_c0_hi_wi_c1_desc =
         make_naive_tensor_descriptor_packed(make_tuple(N, C0, Hi, Wi, E2));
@@ -135,9 +119,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
         make_naive_tensor_descriptor_packed(make_tuple(N, K0, Ho, Wo, K1));
 
     constexpr auto conv_driver =
-        DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0hwk1_outpad<
+        DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0hwk1<
             BlockSize,
-            typename vector_type<TInWei, InWeiVectorSize>::type,
+            TInWei,
             TAcc,
             TOut,
             E1,
@@ -156,10 +140,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
             ABlockTransferSrcScalarPerVector_E2,
             ABlockTransferDstScalarPerVector_E2,
             BThreadTransferSrcScalarPerVector_E2,
-            CThreadTransferDstScalarPerVector_K,
-            activ_type>{};
+            CThreadTransferDstScalarPerVector_K>{};
 
-    std::cerr << "conv_bias_activ_input_"
+    std::cerr << "conv_input_"
               << "n" << N << "c" << C0 << "h" << Hi << "w" << Wi << "c" << C1 << "_filter_k" << K
               << "c" << C0 << "y" << Y << "x" << X << "c" << C1 << "_convout_n" << N << "k" << K0
               << "h" << Ho << "w" << Wo << "k" << K1 << std::endl;
@@ -175,11 +158,8 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
                             conv_dilations,
                             in_left_pads,
                             in_right_pads,
-                            static_cast<typename vector_type<TInWei, InWeiVectorSize>::type*>(
-                                wei_k_c0_y_x_c1_device_buf.GetDeviceBuffer()),
-                            static_cast<typename vector_type<TInWei, InWeiVectorSize>::type*>(
-                                in_n_c0_hi_wi_c1_device_buf.GetDeviceBuffer()),
-                            static_cast<TOut*>(bias_k0_k1_device_buf.GetDeviceBuffer()),
+                            static_cast<TInWei*>(wei_k_c0_y_x_c1_device_buf.GetDeviceBuffer()),
+                            static_cast<TInWei*>(in_n_c0_hi_wi_c1_device_buf.GetDeviceBuffer()),
                             static_cast<TOut*>(out_n_k0_ho_wo_k1_device_buf.GetDeviceBuffer()),
                             nrepeat);
 
