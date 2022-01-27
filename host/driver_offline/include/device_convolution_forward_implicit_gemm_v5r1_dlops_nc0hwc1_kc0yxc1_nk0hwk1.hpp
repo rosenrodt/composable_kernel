@@ -87,7 +87,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
 #elif 1
     constexpr index_t BlockSize = 64;
 
-    constexpr index_t KPerBlock  = 8;
+    constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 8;
     constexpr index_t WoPerBlock = 32;
 
