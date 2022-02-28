@@ -3,7 +3,7 @@
 
 #include "common_header.hpp"
 #include "threadwise_tensor_slice_transfer.hpp"
-#include "threadwise_gemm_dlops_v3.hpp"
+#include "threadwise_tensor_contract_dlops_v1.hpp"
 
 namespace ck {
 
@@ -123,12 +123,13 @@ struct BlockwiseGemmDlops_km_kn_m0m1n0n1_v3
         StaticBuffer<AddressSpaceEnum_t::Vgpr, FloatA, a_thread_mtx_.GetElementSpaceSize(), true>
             a_thread_buf;
 
-        constexpr auto threadwise_gemm = ThreadwiseGemmDlops_km_kn_mn_v3<FloatA,
-                                                                         FloatB,
-                                                                         FloatC,
-                                                                         decltype(a_thread_mtx_),
-                                                                         decltype(b_thread_mtx_),
-                                                                         decltype(c_thread_mtx_)>{};
+        constexpr auto threadwise_gemm =
+            ThreadContract_Dlops_E1MxE2_E1NxE2_MxNx_v1<FloatA,
+                                                       FloatB,
+                                                       FloatC,
+                                                       decltype(a_thread_mtx_),
+                                                       decltype(b_thread_mtx_),
+                                                       decltype(c_thread_mtx_)>{};
 
         static_for<0, E1, EPerThreadLoop>{}([&](auto e_begin) {
             static_for<0, KPerThread, KPerThreadLoop>{}([&](auto k_begin) {

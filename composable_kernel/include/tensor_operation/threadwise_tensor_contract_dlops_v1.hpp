@@ -1,5 +1,5 @@
-#ifndef CK_THREADWISE_GEMM_DLOPS_V3_HPP
-#define CK_THREADWISE_GEMM_DLOPS_V3_HPP
+#ifndef CK_THREADWISE_TENSOR_CONTRACT_DLOPS_V1_HPP
+#define CK_THREADWISE_TENSOR_CONTRACT_DLOPS_V1_HPP
 
 #include "common_header.hpp"
 #include "math.hpp"
@@ -16,7 +16,7 @@ template <typename FloatA,
                                  BThreadDesc_E1_Nx_E2::IsKnownAtCompileTime() &&
                                  CThreadDesc_Mx_Nx::IsKnownAtCompileTime(),
                              bool>::type = false>
-struct ThreadwiseGemmDlops_km_kn_mn_v3
+struct ThreadContract_Dlops_E1MxE2_E1NxE2_MxNx_v1
 {
 
     template <typename ABuffer,
