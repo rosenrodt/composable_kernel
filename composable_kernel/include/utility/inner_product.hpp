@@ -135,6 +135,9 @@ __device__ void inner_product<half8_t, half8_t, float>(const half8_t& a, const h
                   vector_type<half_t, 8>{b}.AsType<half2_t>()[I3],
                   c);
 #else
+    const auto a_vec = vector_type<half_t, 8>{a};
+    const auto b_vec = vector_type<half_t, 8>{b};
+
     asm volatile("\n \
             v_dot2_f32_f16 %0, %1, %5, %0\n \
             v_dot2_f32_f16 %0, %2, %6, %0\n \
@@ -142,14 +145,14 @@ __device__ void inner_product<half8_t, half8_t, float>(const half8_t& a, const h
             v_dot2_f32_f16 %0, %4, %8, %0\n \
             "
                  : "=v"(c)
-                 : "v"(vector_type<half_t, 8>{a}.AsType<half2_t>()[I0]),
-                   "v"(vector_type<half_t, 8>{a}.AsType<half2_t>()[I1]),
-                   "v"(vector_type<half_t, 8>{a}.AsType<half2_t>()[I2]),
-                   "v"(vector_type<half_t, 8>{a}.AsType<half2_t>()[I3]),
-                   "v"(vector_type<half_t, 8>{b}.AsType<half2_t>()[I0]),
-                   "v"(vector_type<half_t, 8>{b}.AsType<half2_t>()[I1]),
-                   "v"(vector_type<half_t, 8>{b}.AsType<half2_t>()[I2]),
-                   "v"(vector_type<half_t, 8>{b}.AsType<half2_t>()[I3]),
+                 : "v"(a_vec.AsType<half2_t>()[I0]),
+                   "v"(a_vec.AsType<half2_t>()[I1]),
+                   "v"(a_vec.AsType<half2_t>()[I2]),
+                   "v"(a_vec.AsType<half2_t>()[I3]),
+                   "v"(b_vec.AsType<half2_t>()[I0]),
+                   "v"(b_vec.AsType<half2_t>()[I1]),
+                   "v"(b_vec.AsType<half2_t>()[I2]),
+                   "v"(b_vec.AsType<half2_t>()[I3]),
                    "0"(c));
 #endif
 }

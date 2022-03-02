@@ -55,6 +55,55 @@ template <typename GridwiseGemm,
           typename AGridDesc_E0_E1_K0_K1_E2,
           typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
           typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
+          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
+          bool HasMainE0BlockLoop>
+__global__ void
+#if CK_USE_LAUNCH_BOUNDS
+    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
+#endif
+        kernel_batched_gemm_dlops_v3(
+            const FloatAB* __restrict__ p_a_grid,
+            const FloatAB* __restrict__ p_b_grid,
+            FloatC* __restrict__ p_c_grid,
+            const index_t a_stride_grp,
+            const index_t b_stride_grp,
+            const index_t c_stride_grp,
+            const AGridDesc_E0_E1_K0_K1_E2 a_e0_e1_k0_k1_e2_grid_desc,
+            const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2 b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+            const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2 c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+            const CBlockIdToBlockClusterAdaptor_K_N_H_W c_blockid_to_k_n_h_w_block_cluster_adaptor,
+            index_t group_grid_size)
+{
+    constexpr index_t shared_block_size =
+        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
+
+    __shared__ FloatAB p_shared_block[shared_block_size];
+
+    const index_t group_id = get_block_1d_id() / group_grid_size;
+
+    const FloatAB* p_a_grid_grp = p_a_grid + group_id * a_stride_grp;
+    const FloatAB* p_b_grid_grp = p_b_grid + group_id * b_stride_grp;
+
+    FloatC* p_c_grid_grp = p_c_grid + group_id * c_stride_grp;
+
+    GridwiseGemm::GroupConv(p_a_grid_grp,
+                            p_b_grid_grp,
+                            p_c_grid_grp,
+                            p_shared_block,
+                            group_grid_size,
+                            a_e0_e1_k0_k1_e2_grid_desc,
+                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                            c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+                            c_blockid_to_k_n_h_w_block_cluster_adaptor,
+                            integral_constant<bool, HasMainE0BlockLoop>{});
+}
+
+template <typename GridwiseGemm,
+          typename FloatAB,
+          typename FloatC,
+          typename AGridDesc_E0_E1_K0_K1_E2,
+          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
+          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
           typename DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx,
           typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
           bool HasMainE0BlockLoop,
@@ -119,193 +168,6 @@ __global__ void
             const DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
             const CBlockIdToBlockClusterAdaptor_K_N_H_W c_blockid_to_k_n_h_w_block_cluster_adaptor)
 {
-    constexpr index_t shared_block_size =
-        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
-
-    __shared__ FloatAB p_shared_block[shared_block_size];
-
-    GridwiseGemm::ConvBiasActivMaxpool(p_a_grid,
-                                       p_b_grid,
-                                       p_bias_grid,
-                                       p_c_grid,
-                                       p_d_grid,
-                                       p_shared_block,
-                                       a_e0_e1_k0_k1_e2_grid_desc,
-                                       b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                       c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-                                       d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
-                                       c_blockid_to_k_n_h_w_block_cluster_adaptor,
-                                       integral_constant<bool, HasMainE0BlockLoop>{},
-                                       integral_constant<ActivTypeEnum_t, ActivType>{});
-}
-#elif CK_EXPERIMENTAL_PASS_TENSOR_DESCRIPTOR_BY_VOID_POINTER
-// pass tensor descriptor by CONSTANT void pointer
-// CONSTANT is needed to inform compiler void pointers in the kernel signature are pointing to
-// non-modifiable parameter address space, so compiler can enable corresponding optimization
-template <typename GridwiseGemm,
-          typename FloatAB,
-          typename FloatC,
-          typename AGridDesc_E0_E1_K0_K1_E2,
-          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
-          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
-          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
-          bool HasMainE0BlockLoop,
-          ActivTypeEnum_t ActivType>
-__global__ void
-#if CK_USE_LAUNCH_BOUNDS
-    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
-#endif
-        kernel_gemm_dlops_v3(const FloatAB* __restrict__ p_a_grid,
-                             const FloatAB* __restrict__ p_b_grid,
-                             const FloatC* __restrict__ p_bias_grid,
-                             FloatC* __restrict__ p_c_grid,
-                             const void CONSTANT* p_a_e0_e1_k0_k1_e2_grid_desc,
-                             const void CONSTANT* p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                             const void CONSTANT* p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-                             const void CONSTANT* p_c_blockid_to_k_n_h_w_block_cluster_adaptor)
-{
-    // first cast void CONSTANT void* to void*
-    // second cast void* to Desc*
-    // the copy constructor of tensor descriptor doesn't take address_space(4)
-    const auto a_e0_e1_k0_k1_e2_grid_desc = *reinterpret_cast<const AGridDesc_E0_E1_K0_K1_E2*>(
-        cast_pointer_to_generic_address_space(p_a_e0_e1_k0_k1_e2_grid_desc));
-    const auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc =
-        *reinterpret_cast<const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2*>(
-            cast_pointer_to_generic_address_space(p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc));
-    const auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc =
-        *reinterpret_cast<const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2*>(
-            cast_pointer_to_generic_address_space(p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc));
-    const auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
-        *reinterpret_cast<const CBlockIdToBlockClusterAdaptor_K_N_H_W*>(
-            cast_pointer_to_generic_address_space(p_c_blockid_to_k_n_h_w_block_cluster_adaptor));
-
-    constexpr index_t shared_block_size =
-        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
-
-    __shared__ FloatAB p_shared_block[shared_block_size];
-
-    GridwiseGemm::ConvBiasActiv(p_a_grid,
-                                p_b_grid,
-                                p_bias_grid,
-                                p_c_grid,
-                                p_shared_block,
-                                a_e0_e1_k0_k1_e2_grid_desc,
-                                b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-                                c_blockid_to_k_n_h_w_block_cluster_adaptor,
-                                integral_constant<bool, HasMainE0BlockLoop>{},
-                                integral_constant<ActivTypeEnum_t, ActivType>{});
-}
-
-// pass tensor descriptor by CONSTANT void pointer
-// CONSTANT is needed to inform compiler void pointers in the kernel signature are pointing to
-// non-modifiable parameter address space, so compiler can enable corresponding optimization
-template <typename GridwiseGemm,
-          typename FloatAB,
-          typename FloatC,
-          typename AGridDesc_E0_E1_K0_K1_E2,
-          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
-          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
-          typename DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx,
-          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
-          bool HasMainE0BlockLoop,
-          ActivTypeEnum_t ActivType>
-__global__ void
-#if CK_USE_LAUNCH_BOUNDS
-    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
-#endif
-        kernel_gemm_dlops_v3_resize_add(
-            const FloatAB* __restrict__ p_a_grid,
-            const FloatAB* __restrict__ p_b_grid,
-            const FloatC* __restrict__ p_bias_grid,
-            FloatC* __restrict__ p_d_grid,
-            const void CONSTANT* p_a_e0_e1_k0_k1_e2_grid_desc,
-            const void CONSTANT* p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-            const void CONSTANT* p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-            const void CONSTANT* p_d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
-            const void CONSTANT* p_c_blockid_to_k_n_h_w_block_cluster_adaptor)
-{
-    // first cast void CONSTANT void* to void*
-    // second cast void* to Desc*
-    // the copy constructor of tensor descriptor doesn't take address_space(4)
-    const auto a_e0_e1_k0_k1_e2_grid_desc = *reinterpret_cast<const AGridDesc_E0_E1_K0_K1_E2*>(
-        cast_pointer_to_generic_address_space(p_a_e0_e1_k0_k1_e2_grid_desc));
-    const auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc =
-        *reinterpret_cast<const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2*>(
-            cast_pointer_to_generic_address_space(p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc));
-    const auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc =
-        *reinterpret_cast<const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2*>(
-            cast_pointer_to_generic_address_space(p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc));
-    const auto d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc =
-        *reinterpret_cast<const DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx*>(
-            cast_pointer_to_generic_address_space(p_d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc));
-    const auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
-        *reinterpret_cast<const CBlockIdToBlockClusterAdaptor_K_N_H_W*>(
-            cast_pointer_to_generic_address_space(p_c_blockid_to_k_n_h_w_block_cluster_adaptor));
-
-    constexpr index_t shared_block_size =
-        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
-
-    __shared__ FloatAB p_shared_block[shared_block_size];
-
-    GridwiseGemm::ConvBiasActivResizeAdd(p_a_grid,
-                                         p_b_grid,
-                                         p_bias_grid,
-                                         p_d_grid,
-                                         p_shared_block,
-                                         a_e0_e1_k0_k1_e2_grid_desc,
-                                         b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                         c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-                                         d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
-                                         c_blockid_to_k_n_h_w_block_cluster_adaptor,
-                                         integral_constant<bool, HasMainE0BlockLoop>{},
-                                         integral_constant<ActivTypeEnum_t, ActivType>{});
-}
-
-template <typename GridwiseGemm,
-          typename FloatAB,
-          typename FloatC,
-          typename AGridDesc_E0_E1_K0_K1_E2,
-          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
-          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
-          typename DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx,
-          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
-          bool HasMainE0BlockLoop,
-          ActivTypeEnum_t ActivType>
-__global__ void
-#if CK_USE_LAUNCH_BOUNDS
-    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
-#endif
-        kernel_gemm_dlops_v3_maxpool(
-            const FloatAB* __restrict__ p_a_grid,
-            const FloatAB* __restrict__ p_b_grid,
-            const FloatC* __restrict__ p_bias_grid,
-            FloatC* __restrict__ p_c_grid,
-            FloatC* __restrict__ p_d_grid,
-            const void CONSTANT* p_a_e0_e1_k0_k1_e2_grid_desc,
-            const void CONSTANT* p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-            const void CONSTANT* p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-            const void CONSTANT* p_d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
-            const void CONSTANT* p_c_blockid_to_k_n_h_w_block_cluster_adaptor)
-{
-    // first cast void CONSTANT void* to void*
-    // second cast void* to Desc*
-    // the copy constructor of tensor descriptor doesn't take address_space(4)
-    const auto a_e0_e1_k0_k1_e2_grid_desc = *reinterpret_cast<const AGridDesc_E0_E1_K0_K1_E2*>(
-        cast_pointer_to_generic_address_space(p_a_e0_e1_k0_k1_e2_grid_desc));
-    const auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc =
-        *reinterpret_cast<const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2*>(
-            cast_pointer_to_generic_address_space(p_b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc));
-    const auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc =
-        *reinterpret_cast<const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2*>(
-            cast_pointer_to_generic_address_space(p_c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc));
-    const auto d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc =
-        *reinterpret_cast<const DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx*>(
-            cast_pointer_to_generic_address_space(p_d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc));
-    const auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
-        *reinterpret_cast<const CBlockIdToBlockClusterAdaptor_K_N_H_W*>(
-            cast_pointer_to_generic_address_space(p_c_blockid_to_k_n_h_w_block_cluster_adaptor));
-
     constexpr index_t shared_block_size =
         GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
 
@@ -435,6 +297,46 @@ __global__ void
         kernel_gemm_dlops_v3(const FloatAB* __restrict__ p_a_grid,
                              const FloatAB* __restrict__ p_b_grid,
                              FloatC* __restrict__ p_c_grid)
+{
+    constexpr index_t shared_block_size =
+        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
+
+    __shared__ FloatAB p_shared_block[shared_block_size];
+
+    constexpr auto a_e0_e1_k0_k1_e2_grid_desc = AGridDesc_E0_E1_K0_K1_E2{};
+    constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc =
+        BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2{};
+    constexpr auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc = CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2{};
+    constexpr auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
+        CBlockIdToBlockClusterAdaptor_K_N_H_W{};
+
+    GridwiseGemm::Conv(p_a_grid,
+                       p_b_grid,
+                       p_c_grid,
+                       p_shared_block,
+                       a_e0_e1_k0_k1_e2_grid_desc,
+                       b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                       c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+                       c_blockid_to_k_n_h_w_block_cluster_adaptor,
+                       integral_constant<bool, HasMainE0BlockLoop>{});
+}
+
+template <typename GridwiseGemm,
+          typename FloatAB,
+          typename FloatC,
+          typename AGridDesc_E0_E1_K0_K1_E2,
+          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
+          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
+          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
+          bool HasMainE0BlockLoop,
+          index_t GroupCount>
+__global__ void
+#if CK_USE_LAUNCH_BOUNDS
+    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
+#endif
+        kernel_batched_gemm_dlops_v3(const FloatAB* __restrict__ p_a_grid,
+                                     const FloatAB* __restrict__ p_b_grid,
+                                     FloatC* __restrict__ p_c_grid)
 {
     constexpr index_t shared_block_size =
         GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
@@ -847,6 +749,16 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         return c_k_n_h_w_block_cluster_idx;
     }
 
+    __device__ static constexpr auto GetGroupCBlockIndex(
+        const CBlockIdToBlockClusterAdaptor_K_N_H_W& c_blockid_to_k_n_h_w_block_cluster_adaptor,
+        const index_t group_grid_size)
+    {
+        const auto c_k_n_h_w_block_cluster_idx =
+            c_blockid_to_k_n_h_w_block_cluster_adaptor.CalculateBottomIndex(
+                make_multi_index(get_block_1d_id() % group_grid_size));
+        return c_k_n_h_w_block_cluster_idx;
+    }
+
     template <typename BiasGlobalBuff,
               typename CThreadBuff,
               typename CBlockIndex,
@@ -1217,11 +1129,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         constexpr auto HasMainE1BlockLoop       = CalculateHasMainE1BlockLoop();
         constexpr auto HasDoubleTailE1BlockLoop = CalculateHasDoubleTailE1BlockLoop();
 
-        // const auto c_k_n_h_w_block_cluster_idx =
-        // GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
-        // c_blockid_to_k_n_h_w_block_cluster_adaptor.CalculateBottomIndex(
-        // make_multi_index(get_block_1d_id()));
-
         const index_t k_block_work_id  = __builtin_amdgcn_readfirstlane(c_block_idx[I0]);
         const index_t n_block_work_id  = __builtin_amdgcn_readfirstlane(c_block_idx[I1]);
         const index_t ho_block_work_id = __builtin_amdgcn_readfirstlane(c_block_idx[I2]);
@@ -1251,7 +1158,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                                                  decltype(c_k1_n_h2_w2_thread_gemm_desc),
                                                  EPerThread,
                                                  K2>{};
-        // blockwise_gemm.GetBeginOfCThreadDesc_K_N_Ho_Wo(get_thread_local_1d_id());
 
         const auto ho_thread_id = c_thread_idx[I2];
         const auto wo_thread_id = c_thread_idx[I3];
@@ -1565,6 +1471,67 @@ struct GridwiseGemmDlops_km_kn_mn_v3
 
         const auto c_k_n_h_w_block_cluster_idx =
             GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
+
+        const auto c_thread_mtx_index = GetCThreadIndex();
+
+        static_for<0, c_k1_n_h2_w2_thread_gemm_desc.GetElementSpaceSize(), 1>{}(
+            [&](auto i) { c_thread_buf(i) = 0; });
+
+        // GemmOp
+        GemmOp(a_global_buf,
+               b_global_buf,
+               c_thread_buf,
+               p_shared_block,
+               c_k_n_h_w_block_cluster_idx,
+               c_thread_mtx_index,
+               a_e0_e1_k0_k1_e2_grid_desc,
+               b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+               c_k1_n_h2_w2_thread_gemm_desc,
+               integral_constant<bool, HasMainE0BlockLoop>{});
+
+        // Output
+        WriteOut(c_thread_buf,
+                 c_global_buf,
+                 c_k_n_h_w_block_cluster_idx,
+                 c_thread_mtx_index,
+                 c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc);
+    }
+
+    template <typename AGridDesc_E0_E1_K0_K1_E2,
+              typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
+              typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
+              typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
+              bool HasMainE0BlockLoop>
+    __device__ static void GroupConv(
+        const FloatAB* __restrict__ p_a_global,
+        const FloatAB* __restrict__ p_b_global,
+        FloatC* __restrict__ p_c_global,
+        FloatAB* __restrict__ p_shared_block,
+        const index_t group_grid_size,
+        const AGridDesc_E0_E1_K0_K1_E2& a_e0_e1_k0_k1_e2_grid_desc,
+        const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2& b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+        const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2& c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+        const CBlockIdToBlockClusterAdaptor_K_N_H_W& c_blockid_to_k_n_h_w_block_cluster_adaptor,
+        integral_constant<bool, HasMainE0BlockLoop>)
+    {
+        const auto a_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_a_global, a_e0_e1_k0_k1_e2_grid_desc.GetElementSpaceSize());
+        const auto b_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_b_global, b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetElementSpaceSize());
+        auto c_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_c_global, c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc.GetElementSpaceSize());
+
+        constexpr auto c_k1_n_h2_w2_thread_gemm_desc = MakeCK1NH2W2ThreadDescriptor();
+
+        // register allocation for output
+        StaticBuffer<AddressSpaceEnum_t::Vgpr,
+                     FloatAcc,
+                     c_k1_n_h2_w2_thread_gemm_desc.GetElementSpaceSize(),
+                     true>
+            c_thread_buf;
+
+        const auto c_k_n_h_w_block_cluster_idx =
+            GetGroupCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, group_grid_size);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
