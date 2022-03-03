@@ -65,9 +65,6 @@ __global__ void
             const FloatAB* __restrict__ p_a_grid,
             const FloatAB* __restrict__ p_b_grid,
             FloatC* __restrict__ p_c_grid,
-            const index_t a_stride_grp,
-            const index_t b_stride_grp,
-            const index_t c_stride_grp,
             const AGridDesc_E0_E1_K0_K1_E2 a_e0_e1_k0_k1_e2_grid_desc,
             const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2 b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
             const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2 c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
@@ -80,6 +77,10 @@ __global__ void
     __shared__ FloatAB p_shared_block[shared_block_size];
 
     const index_t group_id = get_block_1d_id() / group_grid_size;
+
+    constexpr index_t a_stride_grp = a_e0_e1_k0_k1_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t b_stride_grp = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t c_stride_grp = c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc.GetElementSpaceSize();
 
     const FloatAB* p_a_grid_grp = p_a_grid + group_id * a_stride_grp;
     const FloatAB* p_b_grid_grp = p_b_grid + group_id * b_stride_grp;
@@ -329,7 +330,7 @@ template <typename GridwiseGemm,
           typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
           typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
           bool HasMainE0BlockLoop,
-          index_t GroupCount>
+          index_t group_grid_size>
 __global__ void
 #if CK_USE_LAUNCH_BOUNDS
     __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
@@ -350,15 +351,27 @@ __global__ void
     constexpr auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
         CBlockIdToBlockClusterAdaptor_K_N_H_W{};
 
-    GridwiseGemm::Conv(p_a_grid,
-                       p_b_grid,
-                       p_c_grid,
-                       p_shared_block,
-                       a_e0_e1_k0_k1_e2_grid_desc,
-                       b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                       c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
-                       c_blockid_to_k_n_h_w_block_cluster_adaptor,
-                       integral_constant<bool, HasMainE0BlockLoop>{});
+    const index_t group_id = get_block_1d_id() / group_grid_size;
+
+    constexpr index_t a_stride_grp = a_e0_e1_k0_k1_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t b_stride_grp = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t c_stride_grp = c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc.GetElementSpaceSize();
+
+    const FloatAB* p_a_grid_grp = p_a_grid + group_id * a_stride_grp;
+    const FloatAB* p_b_grid_grp = p_b_grid + group_id * b_stride_grp;
+
+    FloatC* p_c_grid_grp = p_c_grid + group_id * c_stride_grp;
+
+    GridwiseGemm::GroupConv(p_a_grid_grp,
+                            p_b_grid_grp,
+                            p_c_grid_grp,
+                            p_shared_block,
+                            group_grid_size,
+                            a_e0_e1_k0_k1_e2_grid_desc,
+                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                            c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+                            c_blockid_to_k_n_h_w_block_cluster_adaptor,
+                            integral_constant<bool, HasMainE0BlockLoop>{});
 }
 #endif
 

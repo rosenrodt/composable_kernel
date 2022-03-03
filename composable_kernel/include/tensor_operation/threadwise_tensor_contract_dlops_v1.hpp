@@ -49,7 +49,12 @@ struct ThreadContract_Dlops_E1MxE2_E1NxE2_MxNx_v1
             is_same<remove_cvref_t<typename CBuffer::type>, remove_cvref_t<FloatC>>::value &&
             "wrong! inconsistent type");
 
-#if 0
+#if 1
+        constexpr auto I0 = Number<0>{};
+        constexpr auto I1 = Number<1>{};
+        constexpr auto I2 = Number<2>{};
+        constexpr auto I3 = Number<3>{};
+
         constexpr auto E1 = AThreadDesc_E1_Mx_E2{}.GetLength(I0);
         constexpr auto K  = AThreadDesc_E1_Mx_E2{}.GetLength(I1);
         constexpr auto E2 = AThreadDesc_E1_Mx_E2{}.GetLength(I2);
@@ -75,9 +80,8 @@ struct ThreadContract_Dlops_E1MxE2_E1NxE2_MxNx_v1
                             a_vec.template AsType<FloatA>()(Number<e2>{}) =
                                 a_buf[Number<a_offset>{}];
 
-                            constexpr index_t b_offset =
-                                BThreadDesc_E1_Nx_E2{}.CalculateOffset(
-                                    b_origin_idx + make_tuple(e1, 0, h, w, e2));
+                            constexpr index_t b_offset = BThreadDesc_E1_Nx_E2{}.CalculateOffset(
+                                b_origin_idx + make_tuple(e1, 0, h, w, e2));
 
                             b_vec.template AsType<FloatB>()(Number<e2>{}) =
                                 b_buf[Number<b_offset>{}];

@@ -175,9 +175,9 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
             make_tuple(Sequence<1, 4>{}, Sequence<0>{}, Sequence<2>{}, Sequence<3>{}),
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3>{}));
 
-        const index_t a_stride_grp = wei_k_c0_y_x_c1_global_desc.GetElementSpaceSize();
-        const index_t b_stride_grp = in_n_c0_y_ho_x_wo_e2_global_desc.GetElementSpaceSize();
-        const index_t c_stride_grp = out_n_k0_ho_wo_k1_global_desc.GetElementSpaceSize();
+        // const index_t a_stride_grp = wei_k_c0_y_x_c1_global_desc.GetElementSpaceSize();
+        // const index_t b_stride_grp = in_n_c0_y_ho_x_wo_e2_global_desc.GetElementSpaceSize();
+        // const index_t c_stride_grp = out_n_k0_ho_wo_k1_global_desc.GetElementSpaceSize();
 
         std::cerr << "Hop = " << Hop << " Wop = " << Wop << std::endl;
 
@@ -275,9 +275,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                                               p_a_grid,
                                               p_b_grid,
                                               p_c_grid,
-                                              a_stride_grp,
-                                              b_stride_grp,
-                                              c_stride_grp,
                                               a_e0_e1_k0_k1_e2_grid_desc,
                                               b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
                                               c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
@@ -304,9 +301,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                                               p_a_grid,
                                               p_b_grid,
                                               p_c_grid,
-                                              a_stride_grp,
-                                              b_stride_grp,
-                                              c_stride_grp,
                                               a_e0_e1_k0_k1_e2_grid_desc,
                                               b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
                                               c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,

@@ -169,7 +169,6 @@ struct ThreadwiseContraction_em_en_mn_v1
                             },
                             Number<c_idx.Size()>{});
                     };
-
                 });
             });
         });

@@ -154,6 +154,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
             conv_driver.Run(wei_k_c0_y_x_c1_desc,
                             in_n_c0_hi_wi_c1_desc,
                             out_n_k0_ho_wo_k1_desc,
+                            I1, // GroupCount
                             conv_strides,
                             conv_dilations,
                             in_left_pads,

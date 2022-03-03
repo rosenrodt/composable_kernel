@@ -30,12 +30,12 @@ template <typename TIn,
           typename InLeftPads,
           typename InRightPads>
 void host_direct_group_convolution_nchwc(const Tensor<TIn>& in,
-                                   const Tensor<TWei>& wei,
-                                   Tensor<TOut>& out,
-                                   const ConvStrides& conv_strides,
-                                   const ConvDilations& conv_dilations,
-                                   const InLeftPads& in_left_pads,
-                                   const InRightPads&)
+                                         const Tensor<TWei>& wei,
+                                         Tensor<TOut>& out,
+                                         const ConvStrides& conv_strides,
+                                         const ConvDilations& conv_dilations,
+                                         const InLeftPads& in_left_pads,
+                                         const InRightPads&)
 {
     using namespace ck;
 
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
     const index_t in_right_pad_h  = std::stoi(argv[21]);
     const index_t in_right_pad_w  = std::stoi(argv[22]);
 
-    const index_t G  = std::stoi(argv[23]);
+    const index_t G = std::stoi(argv[23]);
 
     const index_t YEff = (Y - 1) * conv_dilation_h + 1;
     const index_t XEff = (X - 1) * conv_dilation_w + 1;
@@ -347,8 +347,8 @@ int main(int argc, char* argv[])
         const auto tmp = f_make_for_device_nchwc();
 
         device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0hwk1<in_data_t,
-                                                                                    acc_data_t,
-                                                                                    out_data_t>(
+                                                                                       acc_data_t,
+                                                                                       out_data_t>(
             tmp[I0],
             tmp[I1],
             tmp[I2],
@@ -366,12 +366,12 @@ int main(int argc, char* argv[])
     if(do_verification)
     {
         host_direct_group_convolution_nchwc(in,
-                                      wei,
-                                      out_host,
-                                      make_tuple(conv_stride_h, conv_stride_w),
-                                      make_tuple(conv_dilation_h, conv_dilation_w),
-                                      make_tuple(in_left_pad_h, in_left_pad_w),
-                                      make_tuple(in_right_pad_h, in_right_pad_w));
+                                            wei,
+                                            out_host,
+                                            make_tuple(conv_stride_h, conv_stride_w),
+                                            make_tuple(conv_dilation_h, conv_dilation_w),
+                                            make_tuple(in_left_pad_h, in_left_pad_w),
+                                            make_tuple(in_right_pad_h, in_right_pad_w));
 
         check_error(out_host, out_device);
 

@@ -54,10 +54,11 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     const auto X = wei_g_k_c0_y_x_c1_lengths[I4];
 
     DeviceMem in_g_n_c0_hi_wi_c1_device_buf(sizeof(TInWei) *
-                                          in_g_n_c0_hi_wi_c1.mDesc.GetElementSpace());
-    DeviceMem wei_g_k_c0_y_x_c1_device_buf(sizeof(TInWei) * wei_g_k_c0_y_x_c1.mDesc.GetElementSpace());
+                                            in_g_n_c0_hi_wi_c1.mDesc.GetElementSpace());
+    DeviceMem wei_g_k_c0_y_x_c1_device_buf(sizeof(TInWei) *
+                                           wei_g_k_c0_y_x_c1.mDesc.GetElementSpace());
     DeviceMem out_g_n_k0_ho_wo_k1_device_buf(sizeof(TOut) *
-                                           out_g_n_k0_ho_wo_k1.mDesc.GetElementSpace());
+                                             out_g_n_k0_ho_wo_k1.mDesc.GetElementSpace());
     in_g_n_c0_hi_wi_c1_device_buf.ToDevice(in_g_n_c0_hi_wi_c1.mData.data());
     wei_g_k_c0_y_x_c1_device_buf.ToDevice(wei_g_k_c0_y_x_c1.mData.data());
 
