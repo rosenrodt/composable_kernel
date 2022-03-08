@@ -683,15 +683,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         return c_blockid_to_k_n_ho_wo_block_cluster_adaptor;
     }
 
-    // using AGridDesc_E0_E1_K0_K1_E2 =
-    // decltype(MakeAE0E1K0K1E2GridDescriptor(AGridDesc_E0_E1_K_E2{}));
-    // using BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2 =
-    // decltype(MakeBE0E1NH0H1H2W0W1W2E2GridDescriptor(BGridDesc_E0_E1_N_Ho_Wo_E2{}));
-    // using CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2 =
-    // decltype(MakeCK0K1NH0H1H2W0W1W2GridDescriptor(CGridDesc_K_N_Ho_Wo{}));
-    // using DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx =
-    // decltype(MakeDK0K1NH0H1HxW0W1WxGridDescriptor(DGridDesc_K_N_Hx_Wx{}));
-
     using CBlockIdToBlockClusterAdaptor_K_N_H_W =
         decltype(MakeCBlockIdToKNHoWoBlockClusterAdaptor(CGridDesc_K_N_Ho_Wo{}));
 
@@ -1253,7 +1244,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
 
         do
         {
-#if 0
             // LDS double buffer: preload data
             {
                 a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
@@ -1268,7 +1258,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
             }
 
             __syncthreads();
-#endif
 
             if constexpr(HasMainE1BlockLoop)
             {
