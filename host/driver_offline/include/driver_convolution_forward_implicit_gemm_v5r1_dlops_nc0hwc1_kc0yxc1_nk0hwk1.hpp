@@ -95,13 +95,13 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
         const auto InRightPadH = in_right_pads[I0] + OutRightPadH * ConvStrideH;
         const auto InRightPadW = in_right_pads[I1] + OutRightPadW * ConvStrideW;
 
-        const auto E = C0 * Y * X;
-
         constexpr auto E1 = Number<E1_>{};
         constexpr auto E2 = Number<E2_>{};
         constexpr auto K2 = Number<K2_>{};
 
-        const auto E0 = E / E1;
+        static_assert((C0 * Y * X) % E1 == 0, "");
+
+        const auto E0 = (C0 * Y * X) / E1;
 
         // weight tensor
         const auto a_e_k_e2_grid_desc = transform_tensor_descriptor(
@@ -174,10 +174,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                        make_pad_transform(Wo, I0, OutRightPadW)),
             make_tuple(Sequence<1, 4>{}, Sequence<0>{}, Sequence<2>{}, Sequence<3>{}),
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3>{}));
-
-        // const index_t a_stride_grp = wei_k_c0_y_x_c1_global_desc.GetElementSpaceSize();
-        // const index_t b_stride_grp = in_n_c0_y_ho_x_wo_e2_global_desc.GetElementSpaceSize();
-        // const index_t c_stride_grp = out_n_k0_ho_wo_k1_global_desc.GetElementSpaceSize();
 
         std::cerr << "Hop = " << Hop << " Wop = " << Wop << std::endl;
 

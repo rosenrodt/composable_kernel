@@ -296,7 +296,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                                   Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
                                   Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
                                   Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
         // clang-format on
 
         // GEMM

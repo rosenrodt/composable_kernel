@@ -754,21 +754,12 @@ struct GridwiseGemmDlops_km_kn_mn_v3
     };
 
     __device__ static constexpr auto GetCBlockIndex(
-        const CBlockIdToBlockClusterAdaptor_K_N_H_W& c_blockid_to_k_n_h_w_block_cluster_adaptor)
-    {
-        const auto c_k_n_h_w_block_cluster_idx =
-            c_blockid_to_k_n_h_w_block_cluster_adaptor.CalculateBottomIndex(
-                make_multi_index(get_block_1d_id()));
-        return c_k_n_h_w_block_cluster_idx;
-    }
-
-    __device__ static constexpr auto GetGroupCBlockIndex(
         const CBlockIdToBlockClusterAdaptor_K_N_H_W& c_blockid_to_k_n_h_w_block_cluster_adaptor,
-        const index_t group_grid_size)
+        const index_t block_id)
     {
         const auto c_k_n_h_w_block_cluster_idx =
             c_blockid_to_k_n_h_w_block_cluster_adaptor.CalculateBottomIndex(
-                make_multi_index(get_block_1d_id() % group_grid_size));
+                make_multi_index(block_id));
         return c_k_n_h_w_block_cluster_idx;
     }
 
@@ -1209,8 +1200,6 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                 make_multi_index(0, 0, 0, 0, 0),
                 ck::tensor_operation::element_wise::PassThrough{});
 
-        constexpr auto a_block_slice_copy_step = make_multi_index(I1, 0, 0, 0, 0);
-
         constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc =
             make_naive_tensor_descriptor_packed(make_tuple(I1,
                                                            Number<E1PerBlock>{},
@@ -1258,113 +1247,13 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             b_thread_even_buf, b_thread_odd_buf;
 
-        if constexpr(HasMainE0BlockLoop)
+        const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
+
+        index_t e0_block_data_begin = 0;
+
+        do
         {
-            const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
-
-            index_t e0_block_data_begin = 0;
-
-            do
-            {
-                // LDS double buffer: preload data
-                {
-                    a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
-
-                    b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                              b_global_buf,
-                                              b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                                              make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                                              b_thread_even_buf);
-
-                    a_blockwise_copy.RunWrite(a_e0_e1_k0_k1_e2_block_copy_desc, a_block_buf);
-                }
-
-                __syncthreads();
-
-                if constexpr(HasMainE1BlockLoop)
-                {
-                    index_t e1_block_data_begin = 0;
-
-                    // LDS double buffer: main body
-                    // use Do-While loop instead of For loop to simplify control flow
-                    do
-                    {
-                        // even iteration
-                        b_threadwise_transfer.MoveSrcSliceWindow(
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc, b_thread_slice_copy_step);
-
-                        b_threadwise_transfer.Run(
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                            b_global_buf,
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                            make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                            b_thread_odd_buf);
-
-                        // LDS double buffer: GEMM on current data
-                        blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
-
-                        blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
-
-                        b_threadwise_transfer.MoveSrcSliceWindow(
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc, b_thread_slice_copy_step);
-
-                        b_threadwise_transfer.Run(
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                            b_global_buf,
-                            b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                            make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                            b_thread_even_buf);
-
-                        // LDS double buffer: GEMM on current data
-                        blockwise_gemm.Run(a_block_buf, b_thread_odd_buf, c_thread_buf);
-
-                        blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
-
-                        e1_block_data_begin += 2 * E1PerBlock;
-
-                    } while(e1_block_data_begin < E1 - 2 * E1PerBlock);
-                }
-
-                // LDS double buffer: tail
-                if constexpr(HasDoubleTailE1BlockLoop) // if has 2 iteration left
-                {
-                    b_threadwise_transfer.MoveSrcSliceWindow(
-                        b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc, b_thread_slice_copy_step);
-
-                    b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                              b_global_buf,
-                                              b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                                              make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                                              b_thread_odd_buf);
-
-                    // LDS double buffer: GEMM on 2nd-last data
-                    blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
-
-                    blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
-
-                    // LDS double buffer: GEMM on last data
-                    blockwise_gemm.Run(a_block_buf, b_thread_odd_buf, c_thread_buf);
-                }
-                else // if has 1 iteration left
-                {
-                    // LDS double buffer: GEMM on last data
-                    blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
-                }
-
-                a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
-                                                    a_block_slice_copy_step);
-
-                blockwise_gemm.MoveABlockSliceWindow(make_tuple(-(E1 - E1PerBlock), 0, 0));
-
-                b_threadwise_transfer.MoveSrcSliceWindow(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                                         b_thread_slice_copy_step);
-
-                e0_block_data_begin += 1;
-
-            } while(e0_block_data_begin < E0);
-        }
-        else
-        {
+#if 0
             // LDS double buffer: preload data
             {
                 a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
@@ -1379,6 +1268,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
             }
 
             __syncthreads();
+#endif
 
             if constexpr(HasMainE1BlockLoop)
             {
@@ -1447,7 +1337,22 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                 // LDS double buffer: GEMM on last data
                 blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
             }
-        }
+
+            if constexpr(HasMainE0BlockLoop)
+            {
+                a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
+                                                    make_multi_index(I1, 0, 0, 0, 0));
+
+                blockwise_gemm.MoveABlockSliceWindow(make_tuple(-(E1 - E1PerBlock), 0, 0));
+
+                b_threadwise_transfer.MoveSrcSliceWindow(
+                    b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                    make_multi_index(I1, -(E1 - E1PerBlock), 0, 0, 0, 0, 0, 0, 0, 0));
+            }
+
+            e0_block_data_begin += 1;
+
+        } while(e0_block_data_begin < E0);
     }
 
     template <typename AGridDesc_E0_E1_K0_K1_E2,
@@ -1482,8 +1387,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             c_thread_buf;
 
+        const index_t block_id = get_block_1d_id();
+
         const auto c_k_n_h_w_block_cluster_idx =
-            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
@@ -1543,8 +1450,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             c_thread_buf;
 
+        const index_t block_id = get_block_1d_id();
+
         const auto c_k_n_h_w_block_cluster_idx =
-            GetGroupCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, group_grid_size);
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id % group_grid_size);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
@@ -1613,8 +1522,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             c_thread_buf;
 
+        const index_t block_id = get_block_1d_id();
+
         const auto c_k_n_h_w_block_cluster_idx =
-            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
@@ -1696,8 +1607,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             c_thread_buf;
 
+        const index_t block_id = get_block_1d_id();
+
         const auto c_k_n_h_w_block_cluster_idx =
-            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
@@ -1784,8 +1697,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             c_thread_buf;
 
+        const index_t block_id = get_block_1d_id();
+
         const auto c_k_n_h_w_block_cluster_idx =
-            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor);
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id);
 
         const auto c_thread_mtx_index = GetCThreadIndex();
 
