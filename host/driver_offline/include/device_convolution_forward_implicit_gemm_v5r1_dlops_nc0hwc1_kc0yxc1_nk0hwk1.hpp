@@ -90,7 +90,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1
 #elif 1
     constexpr index_t BlockSize = 256;
 
-    constexpr index_t E0PerBlock = 2;
+    constexpr index_t E0PerBlock = 4;
     constexpr index_t E1         = 4;
     constexpr index_t E2         = C1;
     constexpr index_t K2         = 4;

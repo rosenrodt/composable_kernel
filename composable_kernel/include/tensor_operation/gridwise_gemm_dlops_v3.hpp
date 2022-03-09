@@ -1122,7 +1122,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
            const CThreadDesc_K1_N_H2_W2&,
            integral_constant<bool, HasMainE0BlockLoop>)
     {
-        constexpr auto HasMainE1BlockLoop       = CalculateHasMainE1BlockLoop();
+        // constexpr auto HasMainE1BlockLoop       = CalculateHasMainE1BlockLoop();
         constexpr auto HasDoubleTailE1BlockLoop = CalculateHasDoubleTailE1BlockLoop();
 
         const index_t k_block_work_id  = __builtin_amdgcn_readfirstlane(c_block_idx[I0]);
@@ -1239,35 +1239,30 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             b_thread_even_buf, b_thread_odd_buf;
 
-        // const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
+        //const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
 
-        // LDS double buffer: preload data
+        //index_t e0_block_data_begin = 0;
+
+        //do
         {
-            a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
 
-            b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                      b_global_buf,
-                                      b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                                      make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                                      b_thread_even_buf);
-
-            a_blockwise_copy.RunWrite(a_e0_e1_k0_k1_e2_block_copy_desc, a_block_buf);
-        }
-
-        __syncthreads();
-
-        index_t e0_block_data_begin = 0;
-
-        do
-        {
-            if constexpr(HasMainE1BlockLoop)
+            // LDS double buffer: preload data
             {
-                index_t e1_block_data_begin = 0;
+                a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
 
-                // LDS double buffer: main body
-                // use Do-While loop instead of For loop to simplify control flow
-                do
-                {
+                a_blockwise_copy.RunWrite(a_e0_e1_k0_k1_e2_block_copy_desc, a_block_buf);
+            }
+
+            __syncthreads();
+
+            static_for<0, E0PerBlock, 1>{}([&](auto) {
+                b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                                          b_global_buf,
+                                          b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
+                                          make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
+                                          b_thread_even_buf);
+
+                static_for<0, E1 - 2 * E1PerBlock, 2 * E1PerBlock>{}([&](auto) {
                     // even iteration
                     b_threadwise_transfer.MoveSrcSliceWindow(
                         b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc, b_thread_slice_copy_step);
@@ -1296,53 +1291,51 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                     blockwise_gemm.Run(a_block_buf, b_thread_odd_buf, c_thread_buf);
 
                     blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
+                });
 
-                    e1_block_data_begin += 2 * E1PerBlock;
+                // LDS double buffer: tail
+                if constexpr(HasDoubleTailE1BlockLoop) // if has 2 iteration left
+                {
+                    b_threadwise_transfer.MoveSrcSliceWindow(
+                        b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc, b_thread_slice_copy_step);
 
-                } while(e1_block_data_begin < E1 - 2 * E1PerBlock);
-            }
+                    b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                                              b_global_buf,
+                                              b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
+                                              make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
+                                              b_thread_odd_buf);
 
-            // LDS double buffer: tail
-            if constexpr(HasDoubleTailE1BlockLoop) // if has 2 iteration left
-            {
-                b_threadwise_transfer.MoveSrcSliceWindow(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                                         b_thread_slice_copy_step);
+                    // LDS double buffer: GEMM on 2nd-last data
+                    blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
 
-                b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                          b_global_buf,
-                                          b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                                          make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                                          b_thread_odd_buf);
+                    blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
 
-                // LDS double buffer: GEMM on 2nd-last data
-                blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
+                    // LDS double buffer: GEMM on last data
+                    blockwise_gemm.Run(a_block_buf, b_thread_odd_buf, c_thread_buf);
+                }
+                else // if has 1 iteration left
+                {
+                    // LDS double buffer: GEMM on last data
+                    blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
+                }
 
-                blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
+                // if constexpr(e0_block_data_begin < Number<E0PerBlock - 1>{})
+                {
+                    blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
 
-                // LDS double buffer: GEMM on last data
-                blockwise_gemm.Run(a_block_buf, b_thread_odd_buf, c_thread_buf);
-            }
-            else // if has 1 iteration left
-            {
-                // LDS double buffer: GEMM on last data
-                blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
-            }
+                    b_threadwise_transfer.MoveSrcSliceWindow(
+                        b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                        make_multi_index(0, E1PerBlock, 0, 0, 0, 0, 0, 0, 0, 0));
+                }
+            });
 
-            if constexpr(E0PerBlock > 1)
-            {
-                blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
+            //a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
+                                                //make_multi_index(E0PerBlock, 0, 0, 0, 0));
 
-                b_threadwise_transfer.MoveSrcSliceWindow(
-                    b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                    make_multi_index(I1, -(E1 - E1PerBlock), 0, 0, 0, 0, 0, 0, 0, 0));
-            }
+            //e0_block_data_begin += E0PerBlock;
 
-            e0_block_data_begin += 1;
-
-        } while(e0_block_data_begin < E0PerBlock);
-
-        // a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
-        // make_multi_index(I1, 0, 0, 0, 0));
+        } 
+        //while(e0_block_data_begin < E0);
     }
 
     template <typename AGridDesc_E0_E1_K0_K1_E2,
