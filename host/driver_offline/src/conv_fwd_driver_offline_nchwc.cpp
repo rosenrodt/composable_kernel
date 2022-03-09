@@ -14,7 +14,7 @@
 #include "device_tensor.hpp"
 #include "device_convolution_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0yxc1_nk0hwk1.hpp"
 
-#define USE_DYNAMIC_MODE 0
+#define USE_DYNAMIC_MODE 1
 #define USE_CONV_FWD_V5R1_NCHWC 1
 
 enum ConvForwardAlgo
@@ -231,7 +231,7 @@ int main(int argc, char* argv[])
     constexpr auto Hi = Number<540>{};
     constexpr auto Y  = Number<1>{};
     constexpr auto X  = Number<1>{};
-    constexpr auto C0 = Number<18>{};
+    constexpr auto C0 = Number<16>{};
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<8>{};
     constexpr auto K1 = Number<8>{};

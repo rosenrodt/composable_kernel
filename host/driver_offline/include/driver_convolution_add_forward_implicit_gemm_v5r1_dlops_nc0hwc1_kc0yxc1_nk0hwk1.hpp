@@ -208,96 +208,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
             throw std::runtime_error("wrong! GEMM size no divisible");
         }
 
-        // clang-format off
-
-        // hack to control index calculation when iterating over a_e0_e1_k_e2_global tensor
-        constexpr auto a_e0_e1_k_e2_global_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
-        constexpr auto a_e0_e1_k_e2_global_move_slice_window_step_hack =
-            Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{};
-
-        // hack to control index calculation when iterating over b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global tensor
-        constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_step_hacks = 
-            make_tuple(
-                make_tuple(
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}), 
-                make_tuple(
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{})
-            ); 
-
-        constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_move_slice_window_step_hack =
-            Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{};
-
-        // hack to control index calculation when iterating over c_k0_k1_n_h0_h1_h2_w0_w1_w2_global tensor
-        constexpr auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_global_tensor_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
-        constexpr auto d_k0_k1_n_h0_h1_h2x2_w0_w1_w2x2_global_tensor_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-        // clang-format on
-
         // GEMM
         using GridwiseGemm = GridwiseGemmDlops_km_kn_mn_v3<
             BlockSize,
@@ -335,13 +245,7 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                    // MoveSrcSliceWindow() to save addr computation
             Sequence<0, 1, 2, 3, 4, 5, 6, 7, 8>, // K0, K1, N, H0, H1, I2, H2, W0, W1, I2, W2
             1,
-            CThreadTransferDstScalarPerVector_K,
-            decltype(a_e0_e1_k_e2_global_step_hacks),
-            decltype(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_step_hacks),
-            decltype(c_k0_k1_n_h0_h1_h2_w0_w1_w2_global_tensor_step_hacks),
-            decltype(d_k0_k1_n_h0_h1_h2x2_w0_w1_w2x2_global_tensor_step_hacks),
-            decltype(a_e0_e1_k_e2_global_move_slice_window_step_hack),
-            decltype(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_move_slice_window_step_hack)>;
+            CThreadTransferDstScalarPerVector_K>;
 
         const auto a_e0_e1_k0_k1_e2_grid_desc =
             GridwiseGemm::MakeAE0E1K0K1E2GridDescriptor(a_e0_e1_k_e2_grid_desc);

@@ -390,6 +390,7 @@ template <index_t BlockSize,
           index_t KPerBlock,
           index_t HoPerBlock,
           index_t WoPerBlock,
+          index_t E0PerBlock,
           index_t E1PerBlock,
           index_t KPerThread,
           index_t HoPerThread,
@@ -435,7 +436,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         // A matrix in LDS memory, dst of blockwise copy
         //   be careful of LDS alignment
         constexpr auto a_e0_e1_k1_e2_block_desc = make_naive_tensor_descriptor_aligned(
-            make_tuple(I1, Number<E1>{}, Number<KPerBlock>{}, Number<E2>{}), max_lds_align);
+            make_tuple(E0PerBlock, Number<E1>{}, Number<KPerBlock>{}, Number<E2>{}), max_lds_align);
 
         // LDS allocation for A and B: be careful of alignment
         constexpr auto a_block_space_size = math::integer_least_multiple(
@@ -1158,7 +1159,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         const auto wo_thread_id = c_thread_idx[I3];
 
         constexpr auto a_e0_e1_k0_k1_e2_block_copy_desc = make_naive_tensor_descriptor_aligned(
-            make_tuple(Number<I1>{}, Number<E1>{}, I1, Number<KPerBlock>{}, Number<E2>{}),
+            make_tuple(Number<E0PerBlock>{}, Number<E1>{}, I1, Number<KPerBlock>{}, Number<E2>{}),
             max_lds_align);
 
         // A matrix blockwise copy
@@ -1167,7 +1168,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                                               ck::tensor_operation::element_wise::PassThrough,
                                               ck::tensor_operation::element_wise::PassThrough,
                                               InMemoryDataOperationEnum_t::Set,
-                                              Sequence<I1, E1, I1, KPerBlock, E2>,
+                                              Sequence<E0PerBlock, E1, I1, KPerBlock, E2>,
                                               ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2,
                                               ABlockTransferThreadClusterArrangeOrder,
                                               FloatAB,
@@ -1238,27 +1239,27 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                      true>
             b_thread_even_buf, b_thread_odd_buf;
 
-        const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
+        // const auto E0 = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetLength(I0);
+
+        // LDS double buffer: preload data
+        {
+            a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
+
+            b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                                      b_global_buf,
+                                      b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
+                                      make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
+                                      b_thread_even_buf);
+
+            a_blockwise_copy.RunWrite(a_e0_e1_k0_k1_e2_block_copy_desc, a_block_buf);
+        }
+
+        __syncthreads();
 
         index_t e0_block_data_begin = 0;
 
         do
         {
-            // LDS double buffer: preload data
-            {
-                a_blockwise_copy.RunRead(a_e0_e1_k0_k1_e2_grid_desc, a_global_buf);
-
-                b_threadwise_transfer.Run(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
-                                          b_global_buf,
-                                          b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_thread_copy_desc,
-                                          make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0, I0),
-                                          b_thread_even_buf);
-
-                a_blockwise_copy.RunWrite(a_e0_e1_k0_k1_e2_block_copy_desc, a_block_buf);
-            }
-
-            __syncthreads();
-
             if constexpr(HasMainE1BlockLoop)
             {
                 index_t e1_block_data_begin = 0;
@@ -1327,12 +1328,9 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                 blockwise_gemm.Run(a_block_buf, b_thread_even_buf, c_thread_buf);
             }
 
-            if constexpr(HasMainE0BlockLoop)
+            if constexpr(E0PerBlock > 1)
             {
-                a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
-                                                    make_multi_index(I1, 0, 0, 0, 0));
-
-                blockwise_gemm.MoveABlockSliceWindow(make_tuple(-(E1 - E1PerBlock), 0, 0));
+                blockwise_gemm.MoveABlockSliceWindow(make_tuple(E1PerBlock, 0, 0));
 
                 b_threadwise_transfer.MoveSrcSliceWindow(
                     b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
@@ -1341,7 +1339,10 @@ struct GridwiseGemmDlops_km_kn_mn_v3
 
             e0_block_data_begin += 1;
 
-        } while(e0_block_data_begin < E0);
+        } while(e0_block_data_begin < E0PerBlock);
+
+        // a_blockwise_copy.MoveSrcSliceWindow(a_e0_e1_k0_k1_e2_grid_desc,
+        // make_multi_index(I1, 0, 0, 0, 0));
     }
 
     template <typename AGridDesc_E0_E1_K0_K1_E2,
