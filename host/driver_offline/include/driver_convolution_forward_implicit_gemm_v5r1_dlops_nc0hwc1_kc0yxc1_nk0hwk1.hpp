@@ -186,6 +186,12 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
             throw std::runtime_error("wrong! GEMM size no divisible");
         }
 
+        std::cerr << "a_size = " << a_e0_e1_k_e2_grid_desc.GetElementSpaceSize() * sizeof(FloatAB)
+                  << ", b_size = "
+                  << b_e0_e1_n_ho_wo_e2_grid_desc.GetElementSpaceSize() * sizeof(FloatAB)
+                  << ", c = " << c_k_n_hop_wop_grid_desc.GetElementSpaceSize() * sizeof(FloatC)
+                  << std::endl;
+
         // GEMM
         using GridwiseGemm = GridwiseGemmDlops_km_kn_mn_v3<
             BlockSize,
