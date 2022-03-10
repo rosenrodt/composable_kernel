@@ -24,13 +24,11 @@ struct BlockwiseGemmDlops_km_kn_m0m1n0n1_v3
     static constexpr auto I3 = Number<3>{};
     static constexpr auto I4 = Number<4>{};
 
-    using AIndex = MultiIndex<3>;
-    using BIndex = MultiIndex<3>;
     using CIndex = MultiIndex<4>;
 
-    static constexpr auto E1        = ABlockDesc_E1_K1_E2{}.GetLength(I0);
-    static constexpr auto KPerBlock = ABlockDesc_E1_K1_E2{}.GetLength(I1);
-    static constexpr auto E2        = ABlockDesc_E1_K1_E2{}.GetLength(I2);
+    static constexpr auto E1PerBlock = ABlockDesc_E1_K1_E2{}.GetLength(I0);
+    static constexpr auto KPerBlock  = ABlockDesc_E1_K1_E2{}.GetLength(I1);
+    static constexpr auto E2         = ABlockDesc_E1_K1_E2{}.GetLength(I2);
 
     static constexpr auto HoPerBlock = BBlockDesc_E1_N_Ho_Wo_E2{}.GetLength(I2);
     static constexpr auto WoPerBlock = BBlockDesc_E1_N_Ho_Wo_E2{}.GetLength(I3);
@@ -66,7 +64,7 @@ struct BlockwiseGemmDlops_km_kn_m0m1n0n1_v3
                 ABlockDesc_E1_K1_E2{}.GetLength(I2) == BBlockDesc_E1_N_Ho_Wo_E2{}.GetLength(I4),
             "wrong! E dimension not consistent\n");
 
-        static_assert(E1 % EPerThreadLoop == 0, "");
+        static_assert(E1PerBlock % EPerThreadLoop == 0, "");
         static_assert(KPerThread % KPerThreadLoop == 0, "");
 
         static_assert(KPerBlock % KPerThread == 0 && HoPerBlock % HoPerThread == 0 &&
@@ -131,7 +129,7 @@ struct BlockwiseGemmDlops_km_kn_m0m1n0n1_v3
                                                        decltype(b_thread_mtx_),
                                                        decltype(c_thread_mtx_)>{};
 
-        static_for<0, E1, EPerThreadLoop>{}([&](auto e_begin) {
+        static_for<0, E1PerBlock, EPerThreadLoop>{}([&](auto e_begin) {
             static_for<0, KPerThread, KPerThreadLoop>{}([&](auto k_begin) {
                 a_thread_copy_.Run(a_block_mtx,
                                    make_tuple(e_begin, k_begin, I0),
