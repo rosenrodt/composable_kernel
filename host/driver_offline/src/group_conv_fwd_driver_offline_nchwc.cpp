@@ -151,27 +151,58 @@ int main(int argc, char* argv[])
 #if 0
     constexpr auto G           = Number<2>{};
     constexpr auto N           = Number<1>{};
-    //constexpr auto Wi          = Number<3840>{};
-    //constexpr auto Hi          = Number<2160>{};
-    constexpr auto Wi = Number<1920>{};
-    constexpr auto Hi = Number<1080>{};
+    constexpr auto Wi          = Number<3840>{};
+    constexpr auto Hi          = Number<2160>{};
+    constexpr auto Y           = Number<3>{};
+    constexpr auto X           = Number<3>{};
+    constexpr auto C0          = Number<1>{};
+    constexpr auto C1          = Number<8>{};
+    constexpr auto K0          = Number<4>{};
+    constexpr auto K1          = Number<8>{};
+#elif 0
+    constexpr auto G              = Number<6>{};
+    constexpr auto N              = Number<1>{};
+    constexpr auto Wi             = Number<1920>{};
+    constexpr auto Hi             = Number<1080>{};
+    constexpr auto Y              = Number<3>{};
+    constexpr auto X              = Number<3>{};
+    constexpr auto C0             = Number<1>{};
+    constexpr auto C1             = Number<8>{};
+    constexpr auto K0             = Number<6>{};
+    constexpr auto K1             = Number<8>{};
+#elif 0
+    constexpr auto G  = Number<8>{};
+    constexpr auto N  = Number<1>{};
+    constexpr auto Wi = Number<960>{};
+    constexpr auto Hi = Number<540>{};
     constexpr auto Y  = Number<3>{};
     constexpr auto X  = Number<3>{};
     constexpr auto C0 = Number<1>{};
     constexpr auto C1 = Number<8>{};
-    constexpr auto K0 = Number<2>{};
+    constexpr auto K0 = Number<8>{};
     constexpr auto K1 = Number<8>{};
-#else
-    constexpr auto G              = Number<16>{};
-    constexpr auto N              = Number<1>{};
-    constexpr auto Wi             = Number<960>{};
-    constexpr auto Hi             = Number<540>{};
-    constexpr auto Y              = Number<3>{};
-    constexpr auto X              = Number<3>{};
-    constexpr auto C0             = Number<6>{};
-    constexpr auto C1             = Number<8>{};
-    constexpr auto K0             = Number<6>{};
-    constexpr auto K1             = Number<8>{};
+#elif 0
+    constexpr auto G  = Number<10>{};
+    constexpr auto N  = Number<1>{};
+    constexpr auto Wi = Number<480>{};
+    constexpr auto Hi = Number<270>{};
+    constexpr auto Y  = Number<3>{};
+    constexpr auto X  = Number<3>{};
+    constexpr auto C0 = Number<1>{};
+    constexpr auto C1 = Number<8>{};
+    constexpr auto K0 = Number<10>{};
+    constexpr auto K1 = Number<8>{};
+#elif 1
+    constexpr auto G  = Number<4>{};
+    constexpr auto N  = Number<1>{};
+    constexpr auto Wi = Number<3840>{};
+    constexpr auto Hi = Number<2160>{};
+    constexpr auto Y  = Number<3>{};
+    constexpr auto X  = Number<3>{};
+    constexpr auto C0 = Number<1>{};
+    constexpr auto C1 = Number<8>{};
+    constexpr auto K0 = Number<4>{};
+    constexpr auto K1 = Number<8>{};
 #endif
 
     constexpr auto conv_stride_h   = I1;

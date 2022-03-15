@@ -91,7 +91,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
     constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
     constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
-#elif 0
+#elif 1
     constexpr index_t BlockSize = 256;
 
     constexpr index_t E0PerBlock = 1;
@@ -109,9 +109,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, 3, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<E0PerBlock, C0, 1, KPerBlock, 1>;
+        Sequence<E0PerBlock, C0 * 3, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
@@ -142,7 +142,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
     constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
     constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
-#elif 1
+#elif 0
     constexpr index_t BlockSize = 64;
 
     constexpr index_t E1 = C0 * Y * X;
@@ -158,9 +158,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t KPerThread  = 16;
     constexpr index_t HoPerThread = 2;
     constexpr index_t WoPerThread = 2;
-    constexpr index_t EPerThread  = 2;
+    constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, 3 * 9, 1, 1, C1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, 9 * 5, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, 2, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
@@ -202,14 +202,15 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
             CThreadTransferDstScalarPerVector_K>{};
 
     std::cerr << "input_"
-              << "n" << N << "c" << C0 << "h" << Hi << "w" << Wi << "c" << C1 << "_filter_k" << K
-              << "c" << C0 << "y" << Y << "x" << X << "c" << C1 << "_out_n" << N << "k" << K0 << "h"
-              << Ho << "w" << Wo << "k" << K1 << std::endl;
+              << "g" << G << "n" << N << "c" << C0 << "h" << Hi << "w" << Wi << "c" << C1
+              << "_filter_g" << G << "k" << K << "c" << C0 << "y" << Y << "x" << X << "c" << C1
+              << "_out_g" << G << "n" << N << "k" << K0 << "h" << Ho << "w" << Wo << "k" << K1
+              << std::endl;
     std::cerr << "BlockSize_" << BlockSize << "_E1_" << E1 << "_E2_" << E2 << "_K2_" << K2
               << "_KPerBlock_" << KPerBlock << "_HoPerBlock_" << HoPerBlock << "_WoPerBlock_"
-              << WoPerBlock << "_E1PerBlock_" << E1PerBlock << "_KPerThread_" << KPerThread
-              << "_HoPerThread_" << HoPerThread << "_WoPerThread_" << WoPerThread << "_EPerThread_"
-              << EPerThread << std::endl;
+              << WoPerBlock << "_E0PerBlock_" << E0PerBlock << "_E1PerBlock_" << E1PerBlock
+              << "_KPerThread_" << KPerThread << "_HoPerThread_" << HoPerThread << "_WoPerThread_"
+              << WoPerThread << "_EPerThread_" << EPerThread << std::endl;
 
     for(int i = 0; i < 5; i++)
     {
@@ -229,8 +230,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
                             nrepeat);
 
         {
-            float perf = static_cast<float>(std::size_t(2) * N * K * Ho * Wo * C0 * C1 * Y * X) /
-                         (std::size_t(1000) * 1000 * 1000) / ave_time;
+            float perf =
+                static_cast<float>(std::size_t(2) * N * K * Ho * Wo * C0 * C1 * Y * X * G) /
+                (std::size_t(1000) * 1000 * 1000) / ave_time;
 
             std::cout << "Average time : " << ave_time << " ms, " << perf << " TFlop/s"
                       << std::endl;
