@@ -62,42 +62,69 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     in_g_n_c0_hi_wi_c1_device_buf.ToDevice(in_g_n_c0_hi_wi_c1.mData.data());
     wei_g_k_c0_y_x_c1_device_buf.ToDevice(wei_g_k_c0_y_x_c1.mData.data());
 
+    // blocksize = 256
 #if 0
     constexpr index_t BlockSize = 256;
+
+    constexpr index_t E1 = C0 * Y * X;
+    constexpr index_t E2 = C1;
+    constexpr index_t K2 = 4;
 
     constexpr index_t KPerBlock  = 32;
     constexpr index_t HoPerBlock = 8;
     constexpr index_t WoPerBlock = 64;
-
-    constexpr index_t E1        = C0 * 9;
-    constexpr index_t E2        = 1;
-    constexpr index_t E1PerBlock = C0;
+    constexpr index_t E1PerBlock = 1;
 
     constexpr index_t KPerThread  = 16;
     constexpr index_t HoPerThread = 2;
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, 9, 1, E2>;
-    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, E1PerBlock, KPerBlock, 1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
+        Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
 
-    constexpr index_t ABlockTransferSrcScalarPerVector_E2 = E2;
-    constexpr index_t ABlockTransferDstScalarPerVector_E2 = E2;
-
-    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = E2;
-
-    constexpr index_t CThreadTransferDstScalarPerVector_K = K1;
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
 #elif 1
-    constexpr index_t BlockSize = 64;
+    constexpr index_t BlockSize = 256;
+
+    constexpr index_t E0PerBlock = 1;
+    constexpr index_t E1         = 8;
+    constexpr index_t E2         = C1;
+    constexpr index_t K2         = 4;
+
+    constexpr index_t KPerBlock  = 16;
+    constexpr index_t HoPerBlock = 16;
+    constexpr index_t WoPerBlock = 64;
+    constexpr index_t E1PerBlock = 1;
+
+    constexpr index_t KPerThread  = 16;
+    constexpr index_t HoPerThread = 2;
+    constexpr index_t WoPerThread = 2;
+    constexpr index_t EPerThread  = 1;
+
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, 1, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
+        Sequence<E0PerBlock, E1, 1, KPerBlock, 1>;
+
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
+#elif 0
+    constexpr index_t BlockSize = 128;
 
     constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 8;
-    constexpr index_t WoPerBlock = 32;
-
-    constexpr index_t E1         = C0 * Y * X;
-    constexpr index_t E2         = C1;
-    constexpr index_t K2         = 2;
+    constexpr index_t WoPerBlock = 64;
     constexpr index_t E1PerBlock = 2;
+
+    constexpr index_t E1 = C0 * Y * X;
+    constexpr index_t E2 = C1;
+    constexpr index_t K2 = 4;
 
     constexpr index_t KPerThread  = KPerBlock;
     constexpr index_t HoPerThread = 2;
@@ -108,10 +135,35 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
         Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
 
-    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = 8;
-    constexpr index_t ABlockTransferDstScalarPerVector_E2  = 8;
-    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = 8;
-    constexpr index_t CThreadTransferDstScalarPerVector_K  = 8;
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
+#elif 1
+    constexpr index_t BlockSize = 64;
+
+    constexpr index_t E1 = C0 * Y * X;
+    constexpr index_t E2 = C1;
+    constexpr index_t K2 = 4;
+
+    constexpr index_t KPerBlock  = 16;
+    constexpr index_t HoPerBlock = 8;
+    constexpr index_t WoPerBlock = 32;
+    constexpr index_t E1PerBlock = 2;
+
+    constexpr index_t KPerThread  = 16;
+    constexpr index_t HoPerThread = 2;
+    constexpr index_t WoPerThread = 2;
+    constexpr index_t EPerThread  = 1;
+
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
+        Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
+
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
 #endif
 
     const auto in_n_c0_hi_wi_c1_desc =
@@ -133,6 +185,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
             KPerBlock,
             HoPerBlock,
             WoPerBlock,
+            E0PerBlock,
             E1PerBlock,
             KPerThread,
             HoPerThread,
@@ -157,7 +210,6 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
             conv_driver.Run(wei_k_c0_y_x_c1_desc,
                             in_n_c0_hi_wi_c1_desc,
                             out_n_k0_ho_wo_k1_desc,
-                            G,
                             conv_strides,
                             conv_dilations,
                             in_left_pads,
@@ -165,6 +217,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
                             static_cast<TInWei*>(wei_g_k_c0_y_x_c1_device_buf.GetDeviceBuffer()),
                             static_cast<TInWei*>(in_g_n_c0_hi_wi_c1_device_buf.GetDeviceBuffer()),
                             static_cast<TOut*>(out_g_n_k0_ho_wo_k1_device_buf.GetDeviceBuffer()),
+                            G,
                             nrepeat);
 
         {
