@@ -148,27 +148,29 @@ int main(int argc, char* argv[])
     const bool do_log          = std::stoi(argv[4]);
     const int nrepeat          = std::stoi(argv[5]);
 
-#if 1
+#if 0
     constexpr auto G           = Number<2>{};
     constexpr auto N           = Number<1>{};
-    constexpr auto Wi          = Number<3840>{};
-    constexpr auto Hi          = Number<2160>{};
-    constexpr auto Y           = Number<1>{};
-    constexpr auto X           = Number<1>{};
-    constexpr auto C0          = Number<8>{};
-    constexpr auto C1          = Number<8>{};
-    constexpr auto K0          = Number<2>{};
-    constexpr auto K1          = Number<8>{};
+    //constexpr auto Wi          = Number<3840>{};
+    //constexpr auto Hi          = Number<2160>{};
+    constexpr auto Wi = Number<1920>{};
+    constexpr auto Hi = Number<1080>{};
+    constexpr auto Y  = Number<3>{};
+    constexpr auto X  = Number<3>{};
+    constexpr auto C0 = Number<1>{};
+    constexpr auto C1 = Number<8>{};
+    constexpr auto K0 = Number<2>{};
+    constexpr auto K1 = Number<8>{};
 #else
-    constexpr auto G              = Number<2>{};
+    constexpr auto G              = Number<16>{};
     constexpr auto N              = Number<1>{};
-    constexpr auto Hi             = Number<3840>{};
-    constexpr auto Wi             = Number<2160>{};
-    constexpr auto Y              = Number<1>{};
-    constexpr auto X              = Number<1>{};
-    constexpr auto C0             = Number<1>{};
+    constexpr auto Wi             = Number<960>{};
+    constexpr auto Hi             = Number<540>{};
+    constexpr auto Y              = Number<3>{};
+    constexpr auto X              = Number<3>{};
+    constexpr auto C0             = Number<6>{};
     constexpr auto C1             = Number<8>{};
-    constexpr auto K0             = Number<2>{};
+    constexpr auto K0             = Number<6>{};
     constexpr auto K1             = Number<8>{};
 #endif
 
@@ -177,7 +179,7 @@ int main(int argc, char* argv[])
     constexpr auto conv_dilation_h = I1;
     constexpr auto conv_dilation_w = I1;
 
-#if 0
+#if 1
     constexpr auto in_left_pad_h   = I1;
     constexpr auto in_left_pad_w   = I1;
     constexpr auto in_right_pad_h  = I1;

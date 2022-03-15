@@ -165,7 +165,7 @@ int main(int argc, char* argv[])
     constexpr auto C1             = Number<8>{};
     constexpr auto K0             = Number<4>{};
     constexpr auto K1             = Number<8>{};
-#elif 1
+#elif 0
     constexpr auto N  = Number<1>{};
     constexpr auto Wi = Number<1920>{};
     constexpr auto Hi = Number<1080>{};
@@ -231,7 +231,7 @@ int main(int argc, char* argv[])
     constexpr auto Hi = Number<540>{};
     constexpr auto Y  = Number<1>{};
     constexpr auto X  = Number<1>{};
-    constexpr auto C0 = Number<16>{};
+    constexpr auto C0 = Number<18>{};
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<8>{};
     constexpr auto K1 = Number<8>{};
@@ -245,7 +245,7 @@ int main(int argc, char* argv[])
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<6>{};
     constexpr auto K1 = Number<8>{};
-#elif 1
+#elif 0
     constexpr auto N  = Number<1>{};
     constexpr auto Hi = Number<3840>{};
     constexpr auto Wi = Number<2160>{};
@@ -257,12 +257,24 @@ int main(int argc, char* argv[])
     constexpr auto K1 = Number<8>{};
 #endif
 
+#if 0
+    constexpr auto N           = Number<1>{};
+    constexpr auto Wi          = Number<1920>{};
+    constexpr auto Hi          = Number<1080>{};
+    constexpr auto Y           = Number<3>{};
+    constexpr auto X           = Number<3>{};
+    constexpr auto C0          = Number<2>{};
+    constexpr auto C1          = Number<8>{};
+    constexpr auto K0          = Number<2>{};
+    constexpr auto K1          = Number<8>{};
+#endif
+
     constexpr auto conv_stride_h   = I1;
     constexpr auto conv_stride_w   = I1;
     constexpr auto conv_dilation_h = I1;
     constexpr auto conv_dilation_w = I1;
 
-#if 1
+#if 0
     constexpr auto in_left_pad_h   = I1;
     constexpr auto in_left_pad_w   = I1;
     constexpr auto in_right_pad_h  = I1;

@@ -43,11 +43,13 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     const auto Ho = out_g_n_k0_ho_wo_k1_lengths[I3];
     const auto Wo = out_g_n_k0_ho_wo_k1_lengths[I4];
     const auto K1 = out_g_n_k0_ho_wo_k1_lengths[I5];
+    // const auto K1 = 8;
 
     const auto C0 = in_g_n_c0_hi_wi_c1_lengths[I2];
     const auto Hi = in_g_n_c0_hi_wi_c1_lengths[I3];
     const auto Wi = in_g_n_c0_hi_wi_c1_lengths[I4];
     const auto C1 = in_g_n_c0_hi_wi_c1_lengths[I5];
+    // const auto C1 = 8;
 
     const auto K = wei_g_k_c0_y_x_c1_lengths[I1];
     const auto Y = wei_g_k_c0_y_x_c1_lengths[I3];
@@ -64,15 +66,16 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
 
     // blocksize = 256
 #if 0
-    constexpr index_t BlockSize = 256;
+    constexpr index_t BlockSize = 512;
 
     constexpr index_t E1 = C0 * Y * X;
     constexpr index_t E2 = C1;
     constexpr index_t K2 = 4;
 
-    constexpr index_t KPerBlock  = 32;
-    constexpr index_t HoPerBlock = 8;
-    constexpr index_t WoPerBlock = 64;
+    constexpr index_t E0PerBlock = 1;
+    constexpr index_t KPerBlock  = 16;
+    constexpr index_t HoPerBlock = 16;
+    constexpr index_t WoPerBlock = 128;
     constexpr index_t E1PerBlock = 1;
 
     constexpr index_t KPerThread  = 16;
@@ -82,33 +85,33 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
 
     using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
+        Sequence<1, C0, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
     constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
     constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
-#elif 1
+#elif 0
     constexpr index_t BlockSize = 256;
 
     constexpr index_t E0PerBlock = 1;
-    constexpr index_t E1         = 8;
+    constexpr index_t E1         = C0 * Y * X;
     constexpr index_t E2         = C1;
     constexpr index_t K2         = 4;
 
     constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 16;
     constexpr index_t WoPerBlock = 64;
-    constexpr index_t E1PerBlock = 1;
+    constexpr index_t E1PerBlock = 2;
 
     constexpr index_t KPerThread  = 16;
     constexpr index_t HoPerThread = 2;
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, 1, 1, 1, C1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<E0PerBlock, E1, 1, KPerBlock, 1>;
+        Sequence<E0PerBlock, C0, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
@@ -117,10 +120,11 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
 #elif 0
     constexpr index_t BlockSize = 128;
 
+    constexpr index_t E0PerBlock = 1;
     constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 8;
     constexpr index_t WoPerBlock = 64;
-    constexpr index_t E1PerBlock = 2;
+    constexpr index_t E1PerBlock = 1;
 
     constexpr index_t E1 = C0 * Y * X;
     constexpr index_t E2 = C1;
@@ -131,9 +135,8 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
-    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, Y * X, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, C0, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
@@ -146,6 +149,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t E2 = C1;
     constexpr index_t K2 = 4;
 
+    constexpr index_t E0PerBlock = 1;
     constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 8;
     constexpr index_t WoPerBlock = 32;
@@ -154,11 +158,10 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t KPerThread  = 16;
     constexpr index_t HoPerThread = 2;
     constexpr index_t WoPerThread = 2;
-    constexpr index_t EPerThread  = 1;
+    constexpr index_t EPerThread  = 2;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
-    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<1, E1PerBlock, 1, KPerBlock, 1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, 3 * 9, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, 2, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
@@ -167,9 +170,9 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
 #endif
 
     const auto in_n_c0_hi_wi_c1_desc =
-        make_naive_tensor_descriptor_packed(make_tuple(N, C0, Hi, Wi, E2));
+        make_naive_tensor_descriptor_packed(make_tuple(N, C0, Hi, Wi, C1));
     const auto wei_k_c0_y_x_c1_desc =
-        make_naive_tensor_descriptor_packed(make_tuple(K, C0, Y, X, E2));
+        make_naive_tensor_descriptor_packed(make_tuple(K, C0, Y, X, C1));
     const auto out_n_k0_ho_wo_k1_desc =
         make_naive_tensor_descriptor_packed(make_tuple(N, K0, Ho, Wo, K1));
 
@@ -198,10 +201,15 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
             BThreadTransferSrcScalarPerVector_E2,
             CThreadTransferDstScalarPerVector_K>{};
 
-    std::cerr << "conv_input_"
+    std::cerr << "input_"
               << "n" << N << "c" << C0 << "h" << Hi << "w" << Wi << "c" << C1 << "_filter_k" << K
-              << "c" << C0 << "y" << Y << "x" << X << "c" << C1 << "_convout_n" << N << "k" << K0
-              << "h" << Ho << "w" << Wo << "k" << K1 << std::endl;
+              << "c" << C0 << "y" << Y << "x" << X << "c" << C1 << "_out_n" << N << "k" << K0 << "h"
+              << Ho << "w" << Wo << "k" << K1 << std::endl;
+    std::cerr << "BlockSize_" << BlockSize << "_E1_" << E1 << "_E2_" << E2 << "_K2_" << K2
+              << "_KPerBlock_" << KPerBlock << "_HoPerBlock_" << HoPerBlock << "_WoPerBlock_"
+              << WoPerBlock << "_E1PerBlock_" << E1PerBlock << "_KPerThread_" << KPerThread
+              << "_HoPerThread_" << HoPerThread << "_WoPerThread_" << WoPerThread << "_EPerThread_"
+              << EPerThread << std::endl;
 
     for(int i = 0; i < 5; i++)
     {
