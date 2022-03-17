@@ -181,7 +181,7 @@ int main(int argc, char* argv[])
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<8>{};
     constexpr auto K1 = Number<8>{};
-#elif 0
+#elif 1
     constexpr auto G  = Number<10>{};
     constexpr auto N  = Number<1>{};
     constexpr auto Wi = Number<480>{};
@@ -192,7 +192,7 @@ int main(int argc, char* argv[])
     constexpr auto C1 = Number<8>{};
     constexpr auto K0 = Number<10>{};
     constexpr auto K1 = Number<8>{};
-#elif 1
+#elif 0
     constexpr auto G  = Number<4>{};
     constexpr auto N  = Number<1>{};
     constexpr auto Wi = Number<3840>{};

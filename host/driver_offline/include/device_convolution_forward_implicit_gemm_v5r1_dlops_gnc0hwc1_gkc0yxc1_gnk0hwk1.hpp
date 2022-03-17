@@ -102,7 +102,7 @@ void device_convolution_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0h
     constexpr index_t KPerBlock  = 16;
     constexpr index_t HoPerBlock = 16;
     constexpr index_t WoPerBlock = 64;
-    constexpr index_t E1PerBlock = 2;
+    constexpr index_t E1PerBlock = 1;
 
     constexpr index_t KPerThread  = 16;
     constexpr index_t HoPerThread = 2;

@@ -323,7 +323,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
 
             // if(group_count > 1)
             //{
-
             // const auto kernel = kernel_batched_gemm_dlops_v3<
             // GridwiseGemm,
             // FloatAB,
