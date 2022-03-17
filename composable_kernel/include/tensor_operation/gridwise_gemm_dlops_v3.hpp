@@ -470,7 +470,7 @@ struct GridwiseGemmDlops_km_kn_mn_v3
 
     static constexpr auto NPerBlock = I1;
 
-    static constexpr FloatAcc alpha = 0.3;
+    static constexpr FloatAcc alpha = 1.0;
 
     __host__ __device__ static constexpr index_t GetSharedMemoryNumberOfByte()
     {
@@ -874,7 +874,9 @@ struct GridwiseGemmDlops_km_kn_mn_v3
         static_for<0, c_k1_n_h2_w2_thread_gemm_desc.GetElementSpaceSize(), 1>{}([&](auto i) {
             if constexpr(activ_type_ == 1)
             {
-                c_thread_buf(i) = c_thread_buf[i] >= 0 ? c_thread_buf[i] : alpha * c_thread_buf[i];
+                // c_thread_buf(i) = c_thread_buf[i] >= 0 ? c_thread_buf[i] : alpha *
+                // c_thread_buf[i];
+                c_thread_buf(i) = c_thread_buf[i] > 0 ? c_thread_buf[i] : 0;
             }
             else if constexpr(activ_type_ == 2)
             {
