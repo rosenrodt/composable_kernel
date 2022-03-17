@@ -65,7 +65,34 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
     bias_k0_k1_device_buf.ToDevice(bias_k0_k1.mData.data());
 
     // blocksize = 256
-#if 0
+#if USE_CONV_FIG
+    constexpr index_t BlockSize = CONV_BLOCK_SIZE;
+
+    constexpr index_t E1 = CONV_E1;
+    constexpr index_t E2 = CONV_E2;
+    constexpr index_t K2 = CONV_K2;
+
+    constexpr index_t E0PerBlock = CONV_E0_PER_BLOCK;
+    constexpr index_t KPerBlock  = CONV_K_PER_BLOCK;
+    constexpr index_t HoPerBlock = CONV_HO_PER_BLOCK;
+    constexpr index_t WoPerBlock = CONV_WO_PER_BLOCK;
+    constexpr index_t E1PerBlock = CONV_E1_PER_BLOCK;
+
+    constexpr index_t KPerThread  = CONV_KER_THREAD;
+    constexpr index_t HoPerThread = CONV_HO_PER_THREAD;
+    constexpr index_t WoPerThread = CONV_WO_PER_THREAD;
+    constexpr index_t EPerThread  = CONV_E_PER_THREAD;
+
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 =
+        Sequence<CONV_ABLOCK_TRANS_THREAD_SLICE_LENGTHS>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
+        Sequence<CONV_ABLOCK_TRANS_THREAD_CLUSTER_LENGTHS>;
+
+    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
+    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
+    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
+    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
+#elif 0
     constexpr index_t BlockSize = 256;
 
     constexpr index_t E1 = C0 * Y * X;
@@ -83,9 +110,8 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
     constexpr index_t WoPerThread = 2;
     constexpr index_t EPerThread  = 1;
 
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 = Sequence<1, Y * X, 1, 1, C1>;
-    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<1, C0, 1, KPerBlock, 1>;
+    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, Y * X, 1, 1, C1>;
+    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, C0, 1, KPerBlock, 1>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
@@ -136,33 +162,6 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
 
     using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2   = Sequence<1, 16 * Y * X, 1, 1, C1>;
     using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 = Sequence<1, 4, 1, KPerBlock, 1>;
-
-    constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
-    constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;
-    constexpr index_t BThreadTransferSrcScalarPerVector_E2 = C1;
-    constexpr index_t CThreadTransferDstScalarPerVector_K  = K1;
-#else
-    constexpr index_t BlockSize = CONV_BLOCK_SIZE;
-
-    constexpr index_t E1 = CONV_E1;
-    constexpr index_t E2 = CONV_E2;
-    constexpr index_t K2 = CONV_K2;
-
-    constexpr index_t E0PerBlock = CONV_E0_PER_BLOCK;
-    constexpr index_t KPerBlock  = CONV_K_PER_BLOCK;
-    constexpr index_t HoPerBlock = CONV_HO_PER_BLOCK;
-    constexpr index_t WoPerBlock = CONV_WO_PER_BLOCK;
-    constexpr index_t E1PerBlock = CONV_E1_PER_BLOCK;
-
-    constexpr index_t KPerThread  = CONV_KER_THREAD;
-    constexpr index_t HoPerThread = CONV_HO_PER_THREAD;
-    constexpr index_t WoPerThread = CONV_WO_PER_THREAD;
-    constexpr index_t EPerThread  = CONV_E_PER_THREAD;
-
-    using ABlockTransferThreadSliceLengths_E0_E1_K0_K1_E2 =
-        Sequence<CONV_ABLOCK_TRANS_THREAD_SLICE_LENGTHS>;
-    using ABlockTransferThreadClusterLengths_E0_E1_K0_K1_E2 =
-        Sequence<CONV_ABLOCK_TRANS_THREAD_CLUSTER_LENGTHS>;
 
     constexpr index_t ABlockTransferSrcScalarPerVector_E2  = C1;
     constexpr index_t ABlockTransferDstScalarPerVector_E2  = C1;

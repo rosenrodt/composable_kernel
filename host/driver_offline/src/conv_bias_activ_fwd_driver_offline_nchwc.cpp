@@ -151,18 +151,17 @@ int main(int argc, char* argv[])
     const int nrepeat          = std::stoi(argv[5]);
 
     // constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::Sigmoid;
-    constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::LeakyRelu;
 
 #if USE_CONV_FIG
-    constexpr auto N                         = Number<CONV_N>{};
-    constexpr auto Hi                        = Number<CONV_HI>{};
-    constexpr auto Wi                        = Number<CONV_WI>{};
-    constexpr auto Y                         = Number<CONV_Y>{};
-    constexpr auto X                         = Number<CONV_X>{};
-    constexpr auto C0                        = Number<CONV_C0>{};
-    constexpr auto C1                        = Number<CONV_C1>{};
-    constexpr auto K0                        = Number<CONV_K0>{};
-    constexpr auto K1                        = Number<CONV_K1>{};
+    constexpr auto N  = Number<CONV_N>{};
+    constexpr auto Hi = Number<CONV_HI>{};
+    constexpr auto Wi = Number<CONV_WI>{};
+    constexpr auto Y  = Number<CONV_Y>{};
+    constexpr auto X  = Number<CONV_X>{};
+    constexpr auto C0 = Number<CONV_C0>{};
+    constexpr auto C1 = Number<CONV_C1>{};
+    constexpr auto K0 = Number<CONV_K0>{};
+    constexpr auto K1 = Number<CONV_K1>{};
 
     constexpr auto conv_stride_h   = Number<CONV_STRIDE_H>{};
     constexpr auto conv_stride_w   = Number<CONV_STRIDE_W>{};
@@ -173,6 +172,8 @@ int main(int argc, char* argv[])
     constexpr auto in_left_pad_w  = Number<CONV_IN_LEFT_PAD_W>{};
     constexpr auto in_right_pad_h = Number<CONV_IN_RIGHT_PAD_H>{};
     constexpr auto in_right_pad_w = Number<CONV_IN_RIGHT_PAD_W>{};
+
+    constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::CONV_ACTIV;
 #else
     constexpr auto N  = Number<1>{};
     constexpr auto Hi = Number<270>{};
