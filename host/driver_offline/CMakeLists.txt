@@ -14,6 +14,7 @@ include_directories(BEFORE
 
 set(CONV_FWD_DRIVER_OFFLINE_SOURCE src/conv_fwd_driver_offline.cpp)
 set(CONV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE src/conv_fwd_driver_offline_nchwc.cpp)
+set(CONV_BIAS_ACTIV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE src/conv_bias_activ_fwd_driver_offline_nchwc.cpp)
 set(GROUP_CONV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE src/group_conv_fwd_driver_offline_nchwc.cpp)
 set(CONV_ADD_FWD_DRIVER_OFFLINE_NCHWC_SOURCE src/conv_add_fwd_driver_offline_nchwc.cpp)
 set(CONV_MAXPOOL_FWD_DRIVER_OFFLINE_NCHWC_SOURCE src/conv_maxpool_fwd_driver_offline_nchwc.cpp)
@@ -23,6 +24,7 @@ set(GEMM_DRIVER_OFFLINE_SOURCE src/gemm_driver_offline.cpp)
 
 add_executable(conv_fwd_driver_offline ${CONV_FWD_DRIVER_OFFLINE_SOURCE})
 add_executable(conv_fwd_driver_offline_nchwc ${CONV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE})
+add_executable(conv_bias_activ_fwd_driver_offline_nchwc ${CONV_BIAS_ACTIV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE})
 add_executable(group_conv_fwd_driver_offline_nchwc ${GROUP_CONV_FWD_DRIVER_OFFLINE_NCHWC_SOURCE})
 add_executable(conv_add_fwd_driver_offline_nchwc ${CONV_ADD_FWD_DRIVER_OFFLINE_NCHWC_SOURCE})
 add_executable(conv_maxpool_fwd_driver_offline_nchwc ${CONV_MAXPOOL_FWD_DRIVER_OFFLINE_NCHWC_SOURCE})
@@ -32,6 +34,7 @@ add_executable(gemm_driver_offline ${GEMM_DRIVER_OFFLINE_SOURCE})
 
 target_link_libraries(conv_fwd_driver_offline PRIVATE host_tensor)
 target_link_libraries(conv_fwd_driver_offline_nchwc PRIVATE host_tensor)
+target_link_libraries(conv_bias_activ_fwd_driver_offline_nchwc PRIVATE host_tensor)
 target_link_libraries(group_conv_fwd_driver_offline_nchwc PRIVATE host_tensor)
 target_link_libraries(conv_add_fwd_driver_offline_nchwc PRIVATE host_tensor)
 target_link_libraries(conv_maxpool_fwd_driver_offline_nchwc PRIVATE host_tensor)
