@@ -416,6 +416,69 @@ __global__ void
                             c_blockid_to_k_n_h_w_block_cluster_adaptor,
                             integral_constant<bool, HasMainE0BlockLoop>{});
 }
+
+template <typename GridwiseGemm,
+          typename FloatAB,
+          typename FloatC,
+          typename AGridDesc_E0_E1_K0_K1_E2,
+          typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
+          typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
+          typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
+          bool HasMainE0BlockLoop,
+          index_t group_grid_size,
+          ActivTypeEnum_t ActivType>
+__global__ void
+#if CK_USE_LAUNCH_BOUNDS
+    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
+#endif
+        kernel_batched_gemm_bias_activ_dlops_v3(const FloatAB* __restrict__ p_a_grid,
+                                                const FloatAB* __restrict__ p_b_grid,
+                                                const FloatC* __restrict__ p_bias_grid,
+                                                FloatC* __restrict__ p_c_grid)
+{
+    constexpr index_t shared_block_size =
+        GridwiseGemm::GetSharedMemoryNumberOfByte() / sizeof(FloatAB);
+
+    __shared__ FloatAB p_shared_block[shared_block_size];
+
+    constexpr auto a_e0_e1_k0_k1_e2_grid_desc = AGridDesc_E0_E1_K0_K1_E2{};
+    constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc =
+        BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2{};
+    constexpr auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc = CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2{};
+    constexpr auto c_blockid_to_k_n_h_w_block_cluster_adaptor =
+        CBlockIdToBlockClusterAdaptor_K_N_H_W{};
+
+    const index_t group_id = get_block_1d_id() / group_grid_size;
+
+    constexpr index_t a_stride_grp = a_e0_e1_k0_k1_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t b_stride_grp = b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetElementSpaceSize();
+    constexpr index_t c_stride_grp = c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc.GetElementSpaceSize();
+
+    const FloatAB* p_a_grid_grp = p_a_grid + group_id * a_stride_grp;
+    const FloatAB* p_b_grid_grp = p_b_grid + group_id * b_stride_grp;
+
+    FloatC* p_c_grid_grp = p_c_grid + group_id * c_stride_grp;
+
+    const auto bias_k0_k1_grid_desc =
+        GridwiseGemm::MakeBiasK0K1GridDescriptor(c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc);
+
+    constexpr index_t bias_stride_grp = bias_k0_k1_grid_desc.GetElementSpaceSize();
+
+    const FloatC* p_bias_grid_grp = p_bias_grid + group_id * bias_stride_grp;
+
+    GridwiseGemm::GroupConvBiasActiv(p_a_grid_grp,
+                                     p_b_grid_grp,
+                                     p_bias_grid_grp,
+                                     p_c_grid_grp,
+                                     p_shared_block,
+                                     group_grid_size,
+                                     a_e0_e1_k0_k1_e2_grid_desc,
+                                     b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+                                     c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+                                     c_blockid_to_k_n_h_w_block_cluster_adaptor,
+                                     integral_constant<bool, HasMainE0BlockLoop>{},
+                                     integral_constant<ActivTypeEnum_t, ActivType>{});
+}
 #endif
 
 template <index_t BlockSize,
@@ -1969,6 +2032,91 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
                c_k1_n_h2_w2_thread_gemm_desc,
                integral_constant<bool, HasMainE0BlockLoop>{});
+
+        // Output
+        WriteOut(c_thread_buf,
+                 c_global_buf,
+                 c_k_n_h_w_block_cluster_idx,
+                 c_thread_mtx_index,
+                 c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc);
+    }
+
+    template <typename AGridDesc_E0_E1_K0_K1_E2,
+              typename BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2,
+              typename CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2,
+              typename CBlockIdToBlockClusterAdaptor_K_N_H_W,
+              bool HasMainE0BlockLoop,
+              ActivTypeEnum_t ActivType>
+    __device__ static void GroupConvBiasActiv(
+        const FloatAB* __restrict__ p_a_global,
+        const FloatAB* __restrict__ p_b_global,
+        const FloatC* __restrict__ p_bias_global,
+        FloatC* __restrict__ p_c_global,
+        FloatAB* __restrict__ p_shared_block,
+        const index_t group_grid_size,
+        const AGridDesc_E0_E1_K0_K1_E2& a_e0_e1_k0_k1_e2_grid_desc,
+        const BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2& b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+        const CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2& c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
+        const CBlockIdToBlockClusterAdaptor_K_N_H_W& c_blockid_to_k_n_h_w_block_cluster_adaptor,
+        integral_constant<bool, HasMainE0BlockLoop>,
+        integral_constant<ActivTypeEnum_t, ActivType>)
+    {
+        const auto a_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_a_global, a_e0_e1_k0_k1_e2_grid_desc.GetElementSpaceSize());
+        const auto b_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_b_global, b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc.GetElementSpaceSize());
+        auto c_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_c_global, c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc.GetElementSpaceSize());
+
+        constexpr auto c_k1_n_h2_w2_thread_gemm_desc = MakeCK1NH2W2ThreadDescriptor();
+
+        const auto bias_k0_k1_grid_desc =
+            MakeBiasK0K1GridDescriptor(c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc);
+
+        const auto bias_global_buf = make_dynamic_buffer<AddressSpaceEnum_t::Global>(
+            p_bias_global, bias_k0_k1_grid_desc.GetElementSpaceSize());
+
+        // register allocation for output
+        StaticBuffer<AddressSpaceEnum_t::Vgpr,
+                     FloatAcc,
+                     c_k1_n_h2_w2_thread_gemm_desc.GetElementSpaceSize(),
+                     true>
+            c_thread_buf;
+
+        const index_t block_id = get_block_1d_id();
+
+        const auto c_k_n_h_w_block_cluster_idx =
+            GetCBlockIndex(c_blockid_to_k_n_h_w_block_cluster_adaptor, block_id % group_grid_size);
+
+        const auto c_thread_mtx_index = GetCThreadIndex();
+
+        static_for<0, c_k1_n_h2_w2_thread_gemm_desc.GetElementSpaceSize(), 1>{}(
+            [&](auto i) { c_thread_buf(i) = 0; });
+
+        // GemmOp
+        GemmOp(a_global_buf,
+               b_global_buf,
+               c_thread_buf,
+               p_shared_block,
+               c_k_n_h_w_block_cluster_idx,
+               c_thread_mtx_index,
+               a_e0_e1_k0_k1_e2_grid_desc,
+               b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc,
+               c_k1_n_h2_w2_thread_gemm_desc,
+               integral_constant<bool, HasMainE0BlockLoop>{});
+
+        // Bias
+        BiasOp(bias_global_buf,
+               c_thread_buf,
+               c_k_n_h_w_block_cluster_idx,
+               c_thread_mtx_index,
+               bias_k0_k1_grid_desc,
+               c_k1_n_h2_w2_thread_gemm_desc);
+
+        static constexpr auto activ_type = integral_constant<ActivTypeEnum_t, ActivType>{};
+
+        // Activ
+        Activation(c_thread_buf, c_k1_n_h2_w2_thread_gemm_desc, activ_type);
 
         // Output
         WriteOut(c_thread_buf,

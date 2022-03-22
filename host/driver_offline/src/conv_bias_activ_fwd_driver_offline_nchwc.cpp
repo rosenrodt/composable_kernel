@@ -96,12 +96,14 @@ int main(int argc, char* argv[])
 #if USE_DYNAMIC_MODE
     // dynamic mode
     if(argc != 23)
-    {
-        printf("arg1 to 5: algo, do_verification, init_method, do_log, nrepeat\n");
-        printf("rest: N, K0, K1, C0, C1, Y, X, Hi, Wi, Sy, Sx, Dy, Dx, LeftPy, LeftPx, RightPy, "
-               "RightPx\n");
-        exit(1);
-    }
+        v, activ_type
+        {
+            printf("arg1 to 5: algo, do_verification, init_method, do_log, nrepeat\n");
+            printf(
+                "rest: N, K0, K1, C0, C1, Y, X, Hi, Wi, Sy, Sx, Dy, Dx, LeftPy, LeftPx, RightPy, "
+                "RightPx\n");
+            exit(1);
+        }
 
     constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::LeakyRelu;
 
@@ -150,18 +152,16 @@ int main(int argc, char* argv[])
     const bool do_log          = std::stoi(argv[4]);
     const int nrepeat          = std::stoi(argv[5]);
 
-    // constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::Sigmoid;
-
 #if USE_CONV_FIG
-    constexpr auto N  = Number<CONV_N>{};
-    constexpr auto Hi = Number<CONV_HI>{};
-    constexpr auto Wi = Number<CONV_WI>{};
-    constexpr auto Y  = Number<CONV_Y>{};
-    constexpr auto X  = Number<CONV_X>{};
-    constexpr auto C0 = Number<CONV_C0>{};
-    constexpr auto C1 = Number<CONV_C1>{};
-    constexpr auto K0 = Number<CONV_K0>{};
-    constexpr auto K1 = Number<CONV_K1>{};
+    constexpr auto N           = Number<CONV_N>{};
+    constexpr auto Hi          = Number<CONV_HI>{};
+    constexpr auto Wi          = Number<CONV_WI>{};
+    constexpr auto Y           = Number<CONV_Y>{};
+    constexpr auto X           = Number<CONV_X>{};
+    constexpr auto C0          = Number<CONV_C0>{};
+    constexpr auto C1          = Number<CONV_C1>{};
+    constexpr auto K0          = Number<CONV_K0>{};
+    constexpr auto K1          = Number<CONV_K1>{};
 
     constexpr auto conv_stride_h   = Number<CONV_STRIDE_H>{};
     constexpr auto conv_stride_w   = Number<CONV_STRIDE_W>{};
@@ -194,6 +194,8 @@ int main(int argc, char* argv[])
     constexpr auto in_left_pad_w  = I1;
     constexpr auto in_right_pad_h = I1;
     constexpr auto in_right_pad_w = I1;
+
+    constexpr ck::ActivTypeEnum_t activ_type = ActivTypeEnum_t::LeakyRelu;
 #endif
 
     constexpr auto YEff = (Y - I1) * conv_dilation_h + I1;
@@ -292,6 +294,8 @@ int main(int argc, char* argv[])
         };
         wei.GenerateTensorValue(gen_wei, num_thread);
     }
+
+    bias.GenerateTensorValue(GeneratorTensor_3<in_data_t>{-0.5, 0.5}, num_thread);
 
     auto f_make_for_device_nchwc = [&]() {
         const auto in_lengths_dev     = make_tuple(N, C0, Hi, Wi, C1);
