@@ -1205,7 +1205,8 @@ struct GridwiseGemmDlops_km_kn_mn_v3
                                    0,
                                    wo_block_work_id,
                                    wo_thread_id,
-                                   0))
+                                   0),
+                  ck::tensor_operation::element_wise::PassThrough{})
             .Run(d_k0_k1_n_h0_h1_hx_w0_w1_wx_thread_desc,
                  make_tuple(I0, I0, I0, I0, I0, I0, I0, I0, I0),
                  d_thread_buf,
