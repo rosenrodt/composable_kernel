@@ -16,6 +16,7 @@ template <ck::index_t BlockSize,
           ck::index_t KPerBlock,
           ck::index_t HoPerBlock,
           ck::index_t WoPerBlock,
+          ck::index_t E0PerBlock,
           ck::index_t E1PerBlock,
           ck::index_t KPerThread,
           ck::index_t HoPerThread,
@@ -209,96 +210,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
             throw std::runtime_error("wrong! GEMM size no divisible");
         }
 
-        // clang-format off
-
-        // hack to control index calculation when iterating over a_e0_e1_k_e2_global tensor
-        constexpr auto a_e0_e1_k_e2_global_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
-        constexpr auto a_e0_e1_k_e2_global_move_slice_window_step_hack =
-            Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{};
-
-        // hack to control index calculation when iterating over b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global tensor
-        constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_step_hacks = 
-            make_tuple(
-                make_tuple(
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}), 
-                make_tuple(
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{}, 
-                    Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{})
-            ); 
-
-        constexpr auto b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_move_slice_window_step_hack =
-            Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>{};
-
-        constexpr auto c_k0_k1_n_h0_h1_h2_w0_w1_w2_global_tensor_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
-        constexpr auto d_k0_k1_n_h0_h1_hx_w0_w1_wx_global_tensor_step_hacks =
-            make_tuple(make_tuple(Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 1, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}),
-                       make_tuple(Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 2, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{},
-                                  Sequence<0, 0, 0, 0, 0, 0, 0, 0, 0>{}));
-
-        // clang-format on
-
         // GEMM
         using GridwiseGemm = GridwiseGemmDlops_km_kn_mn_v3<
             BlockSize,
@@ -316,6 +227,7 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
             KPerBlock,
             HoPerBlock,
             WoPerBlock,
+            E0PerBlock,
             E1PerBlock,
             KPerThread,
             HoPerThread,
@@ -336,13 +248,7 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                    // with MoveSrcSliceWindow() to save addr computation
             Sequence<0, 1, 2, 3, 4, 5, 6, 7, 8>, // K0, K1, N, H0, H1, I2, H2, W0, W1, I2, W2
             1,
-            CThreadTransferDstScalarPerVector_K,
-            decltype(a_e0_e1_k_e2_global_step_hacks),
-            decltype(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_step_hacks),
-            decltype(c_k0_k1_n_h0_h1_h2_w0_w1_w2_global_tensor_step_hacks),
-            decltype(d_k0_k1_n_h0_h1_hx_w0_w1_wx_global_tensor_step_hacks),
-            decltype(a_e0_e1_k_e2_global_move_slice_window_step_hack),
-            decltype(b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_global_move_slice_window_step_hack)>;
+            CThreadTransferDstScalarPerVector_K>;
 
         const auto a_e0_e1_k0_k1_e2_grid_desc =
             GridwiseGemm::MakeAE0E1K0K1E2GridDescriptor(a_e0_e1_k_e2_grid_desc);
@@ -434,102 +340,6 @@ struct DriverDynamicConvolutionForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0
                                               c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc,
                                               d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc,
                                               c_blockid_to_k_n_h_w_block_cluster_adaptor);
-        }
-
-#elif CK_EXPERIMENTAL_PASS_TENSOR_DESCRIPTOR_BY_VOID_POINTER
-        DeviceMem a_e0_e1_k0_k1_e2_grid_desc_dev_buf(sizeof(AGridDesc_E0_E1_K0_K1_E2));
-        DeviceMem b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc_dev_buf(
-            sizeof(BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2));
-        DeviceMem c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc_dev_buf(
-            sizeof(CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2));
-        DeviceMem d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc_dev_buf(
-            sizeof(DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx));
-        DeviceMem c_blockid_to_k_n_h_w_block_cluster_adaptor_dev_buf(
-            sizeof(CBlockIdToBlockClusterAdaptor_K_N_H_W));
-
-        a_e0_e1_k0_k1_e2_grid_desc_dev_buf.ToDevice(&a_e0_e1_k0_k1_e2_grid_desc);
-        b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc_dev_buf.ToDevice(
-            &b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc);
-        c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc_dev_buf.ToDevice(
-            &c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc);
-        d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc_dev_buf.ToDevice(
-            &d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc);
-        c_blockid_to_k_n_h_w_block_cluster_adaptor_dev_buf.ToDevice(
-            &c_blockid_to_k_n_h_w_block_cluster_adaptor);
-
-        if(has_main_e0_block_loop)
-        {
-
-            const auto kernel = kernel_gemm_dlops_v3_maxpool<
-                GridwiseGemm,
-                FloatAB,
-                FloatC,
-                remove_reference_t<AGridDesc_E0_E1_K0_K1_E2>,
-                remove_reference_t<BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2>,
-                remove_reference_t<CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2>,
-                remove_reference_t<DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx>,
-                remove_reference_t<CBlockIdToBlockClusterAdaptor_K_N_H_W>,
-                true,
-                activ_type>;
-
-            ave_time = launch_and_time_kernel(
-                kernel,
-                nrepeat,
-                dim3(grid_size),
-                dim3(BlockSize),
-                0,
-                p_a_grid,
-                p_b_grid,
-                p_bias_grid,
-                p_c_grid,
-                p_d_grid,
-                cast_pointer_to_constant_address_space(
-                    a_e0_e1_k0_k1_e2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    c_blockid_to_k_n_h_w_block_cluster_adaptor_dev_buf.GetDeviceBuffer()));
-        }
-        else
-        {
-
-            const auto kernel = kernel_gemm_dlops_v3_maxpool<
-                GridwiseGemm,
-                FloatAB,
-                FloatC,
-                remove_reference_t<AGridDesc_E0_E1_K0_K1_E2>,
-                remove_reference_t<BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2>,
-                remove_reference_t<CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2>,
-                remove_reference_t<DGridDesc_K0_K1_N_H0_H1_Hx_W0_W1_Wx>,
-                remove_reference_t<CBlockIdToBlockClusterAdaptor_K_N_H_W>,
-                false,
-                activ_type>;
-
-            ave_time = launch_and_time_kernel(
-                kernel,
-                nrepeat,
-                dim3(grid_size),
-                dim3(BlockSize),
-                0,
-                p_a_grid,
-                p_b_grid,
-                p_bias_grid,
-                p_c_grid,
-                p_d_grid,
-                cast_pointer_to_constant_address_space(
-                    a_e0_e1_k0_k1_e2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    b_e0_e1_n_h0_h1_h2_w0_w1_w2_e2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    c_k0_k1_n_h0_h1_h2_w0_w1_w2_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    d_k0_k1_n_h0_h1_hx_w0_w1_wx_grid_desc_dev_buf.GetDeviceBuffer()),
-                cast_pointer_to_constant_address_space(
-                    c_blockid_to_k_n_h_w_block_cluster_adaptor_dev_buf.GetDeviceBuffer()));
         }
 #elif CK_EXPERIMENTAL_STATIC_TENSOR_DESCRIPTOR
         {
