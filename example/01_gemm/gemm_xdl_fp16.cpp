@@ -138,6 +138,8 @@ int main(int argc, char* argv[])
         a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
         b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
     }
+    // always zero init for c_device_buf
+    c_m_n_device_result.GenerateTensorValue(GeneratorTensor_0<CDataType>{});
 
     DeviceMem a_m_k_device_buf(sizeof(ADataType) * a_m_k.mDesc.GetElementSpace());
     DeviceMem b_k_n_device_buf(sizeof(BDataType) * b_k_n.mDesc.GetElementSpace());
@@ -145,6 +147,7 @@ int main(int argc, char* argv[])
 
     a_m_k_device_buf.ToDevice(a_m_k.mData.data());
     b_k_n_device_buf.ToDevice(b_k_n.mData.data());
+    c_m_n_device_buf.ToDevice(c_m_n_device_result.mData.data());
 
     auto a_element_op = AElementOp{};
     auto b_element_op = BElementOp{};
