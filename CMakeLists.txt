@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.5)
 # Check support for CUDA/HIP in Cmake
 project(composable_kernel)
 
+# Allow find_package(HIP) to correctly populate --offload-archs
+# set(AMDGPU_TARGETS "gfx90a" CACHE STRING "List of specific machine types for library to target") # User variable
+set(CMAKE_BUILD_TYPE Release)
+
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 enable_testing()
