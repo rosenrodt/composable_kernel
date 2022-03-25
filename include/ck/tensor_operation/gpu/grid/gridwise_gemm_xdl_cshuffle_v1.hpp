@@ -24,7 +24,8 @@ template <typename GridwiseGemm,
           bool HasMainK0BlockLoop>
 __global__ void
 #if CK_USE_LAUNCH_BOUNDS
-    __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
+    __attribute__((amdgpu_flat_work_group_size(CK_MAX_THREAD_PER_BLOCK, CK_MAX_THREAD_PER_BLOCK)))
+    __attribute__((amdgpu_waves_per_eu(CK_MIN_BLOCK_PER_CU, CK_MIN_BLOCK_PER_CU)))
 #endif
         kernel_gemm_xdl_cshuffle_v1(const FloatAB* __restrict__ p_a_grid,
                                     const FloatAB* __restrict__ p_b_grid,
