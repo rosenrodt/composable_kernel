@@ -59,7 +59,8 @@ void device_conv3x3_conv1x1_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_
 
     DeviceMem in_n_c0_hi_wi_c1_device_buf(sizeof(TInWei) *
                                           in_n_c0_hi_wi_c1.mDesc.GetElementSpace());
-    DeviceMem wei1_k_c0_y_x_c1_device_buf(sizeof(TInWei) * wei1_k_c0_y_x_c1.mDesc.GetElementSpace());
+    DeviceMem wei1_k_c0_y_x_c1_device_buf(sizeof(TInWei) *
+                                          wei1_k_c0_y_x_c1.mDesc.GetElementSpace());
     DeviceMem bias_k0_k1_device_buf(sizeof(TOut) * bias_k0_k1.mDesc.GetElementSpace());
     DeviceMem out_n_k0_ho_wo_k1_device_buf(sizeof(TOut) *
                                            out_n_k0_ho_wo_k1.mDesc.GetElementSpace());

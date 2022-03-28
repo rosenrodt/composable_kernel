@@ -277,18 +277,18 @@ int main(int argc, char* argv[])
     case 0:
         // no initialization
         break;
-    //case 1:
-        //in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
-        //wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
-        //break;
-    //case 2:
-        //in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
-        //wei.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
-        //break;
-    //case 3:
-        //in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
-        //wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
-        //break;
+    // case 1:
+    // in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+    // wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+    // break;
+    // case 2:
+    // in.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+    // wei.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
+    // break;
+    // case 3:
+    // in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
+    // wei.GenerateTensorValue(GeneratorTensor_1<in_data_t>{}, num_thread);
+    // break;
     case 4:
         in.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
         wei1.GenerateTensorValue(GeneratorTensor_2<in_data_t>{-5, 5}, num_thread);
@@ -313,8 +313,8 @@ int main(int argc, char* argv[])
 
     auto f_make_for_device_nchwc = [&]() {
         const auto in_lengths_dev     = make_tuple(N, C0, Hi, Wi, C1);
-        const auto wei1_lengths_dev    = make_tuple(K0 * K1, C0, Y, X, C1);
-        const auto wei2_lengths_dev    = make_tuple(K0 * K1, K0, 1, 1, K1);
+        const auto wei1_lengths_dev   = make_tuple(K0 * K1, C0, Y, X, C1);
+        const auto wei2_lengths_dev   = make_tuple(K0 * K1, K0, 1, 1, K1);
         const auto out_lengths_dev    = make_tuple(N, K0, Ho, Wo, K1);
         const auto conv_strides_dev   = make_tuple(conv_stride_h, conv_stride_w);
         const auto conv_dilations_dev = make_tuple(conv_dilation_h, conv_dilation_w);

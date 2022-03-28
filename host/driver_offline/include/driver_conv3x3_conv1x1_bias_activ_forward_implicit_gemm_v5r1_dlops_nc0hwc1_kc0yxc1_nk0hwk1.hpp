@@ -40,9 +40,8 @@ struct DriverDynamicConv3x3Conv1x1BiasActivForwardImplicitGemmDlops_v5r1_nc0hwc1
               typename ConvDilations,
               typename InLeftPads,
               typename InRightPads>
-    __host__ float Run(
-            const ck::TensorDescriptor<Wei1...>& wei1_k_c0_y_x_c1_global_desc,
-            const ck::TensorDescriptor<Wei2...>& wei2_k_c0_1_1_c1_global_desc,
+    __host__ float Run(const ck::TensorDescriptor<Wei1...>& wei1_k_c0_y_x_c1_global_desc,
+                       const ck::TensorDescriptor<Wei2...>& wei2_k_c0_1_1_c1_global_desc,
                        const ck::TensorDescriptor<In...>& in_n_c0_hi_wi_c1_global_desc,
                        const ck::TensorDescriptor<Out...>& out_n_k0_ho_wo_k1_global_desc,
                        const ConvStrides& conv_strides,

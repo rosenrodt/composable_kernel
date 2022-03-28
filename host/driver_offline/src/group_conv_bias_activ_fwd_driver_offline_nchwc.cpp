@@ -221,7 +221,8 @@ int main(int argc, char* argv[])
     using out_data_t = int8_t;
 #endif
 
-    std::vector<std::size_t> in_lengths_host(6), wei_lengths_host(6), out_lengths_host(6), bias_lengths_host(3);
+    std::vector<std::size_t> in_lengths_host(6), wei_lengths_host(6), out_lengths_host(6),
+        bias_lengths_host(3);
 
     in_lengths_host[0] = static_cast<std::size_t>(G);
     in_lengths_host[1] = static_cast<std::size_t>(N);
@@ -325,22 +326,22 @@ int main(int argc, char* argv[])
     {
         const auto tmp = f_make_for_device_nchwc();
 
-        device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0hwk1<in_data_t,
-                                                                                       acc_data_t,
-                                                                                       out_data_t,
-                                                                                       activ_type>(
-            tmp[I0],
-            tmp[I1],
-            tmp[I2],
-            tmp[I3],
-            tmp[I4],
-            tmp[I5],
-            tmp[I6],
-            in,
-            wei,
-            bias,
-            out_device,
-            nrepeat);
+        device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_gnc0hwc1_gkc0yxc1_gnk0hwk1<
+            in_data_t,
+            acc_data_t,
+            out_data_t,
+            activ_type>(tmp[I0],
+                        tmp[I1],
+                        tmp[I2],
+                        tmp[I3],
+                        tmp[I4],
+                        tmp[I5],
+                        tmp[I6],
+                        in,
+                        wei,
+                        bias,
+                        out_device,
+                        nrepeat);
     }
 #endif
 
