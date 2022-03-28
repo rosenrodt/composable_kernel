@@ -78,7 +78,7 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
     constexpr index_t WoPerBlock = CONV_WO_PER_BLOCK;
     constexpr index_t E1PerBlock = CONV_E1_PER_BLOCK;
 
-    constexpr index_t KPerThread  = CONV_KER_THREAD;
+    constexpr index_t KPerThread  = CONV_K_PER_THREAD;
     constexpr index_t HoPerThread = CONV_HO_PER_THREAD;
     constexpr index_t WoPerThread = CONV_WO_PER_THREAD;
     constexpr index_t EPerThread  = CONV_E_PER_THREAD;
@@ -200,6 +200,7 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
             ABlockTransferDstScalarPerVector_E2,
             BThreadTransferSrcScalarPerVector_E2,
             CThreadTransferDstScalarPerVector_K,
+            I1,
             activ_type>{};
 
     std::cerr << "input_"
@@ -214,7 +215,6 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
 
     for(int i = 0; i < 5; i++)
     {
-
         const auto ave_time =
             conv_driver.Run(wei_k_c0_y_x_c1_desc,
                             in_n_c0_hi_wi_c1_desc,
@@ -227,7 +227,6 @@ void device_convolution_bias_activ_forward_implicit_gemm_v5r1_dlops_nc0hwc1_kc0y
                             static_cast<TInWei*>(in_n_c0_hi_wi_c1_device_buf.GetDeviceBuffer()),
                             static_cast<TOut*>(bias_k0_k1_device_buf.GetDeviceBuffer()),
                             static_cast<TOut*>(out_n_k0_ho_wo_k1_device_buf.GetDeviceBuffer()),
-                            I1,
                             nrepeat);
 
         {

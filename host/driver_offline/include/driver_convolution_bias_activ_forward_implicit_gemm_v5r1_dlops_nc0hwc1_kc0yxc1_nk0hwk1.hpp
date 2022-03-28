@@ -28,6 +28,7 @@ template <ck::index_t BlockSize,
           ck::index_t ABlockTransferDstScalarPerVector_E2,
           ck::index_t BThreadTransferSrcScalarPerVector_E2,
           ck::index_t CThreadTransferDstScalarPerVector_K,
+          const ck::index_t group_count,
           ck::ActivTypeEnum_t activ_type>
 struct DriverDynamicConvolutionBiasActivForwardImplicitGemmDlops_v5r1_nc0hwc1_kc0yxc1_nk0hwk1
 {
@@ -49,7 +50,6 @@ struct DriverDynamicConvolutionBiasActivForwardImplicitGemmDlops_v5r1_nc0hwc1_kc
                        const FloatAB* __restrict__ p_b_grid,
                        const FloatC* __restrict__ p_bias_grid,
                        FloatC* __restrict__ p_c_grid,
-                       const ck::index_t group_count,
                        const int nrepeat) const
     {
         using namespace ck;
@@ -335,13 +335,12 @@ struct DriverDynamicConvolutionBiasActivForwardImplicitGemmDlops_v5r1_nc0hwc1_kc
                     remove_reference_t<CBlockIdToBlockClusterAdaptor_K_N_H_W>,
                     has_main_e0_block_loop,
                     grid_size,
+                    group_count,
                     activ_type>;
-
-                const index_t all_group_grid_size = grid_size * group_count;
 
                 ave_time = launch_and_time_kernel(kernel,
                                                   nrepeat,
-                                                  dim3(all_group_grid_size),
+                                                  dim3(grid_size),
                                                   dim3(BlockSize),
                                                   0,
                                                   p_a_grid,
@@ -349,29 +348,29 @@ struct DriverDynamicConvolutionBiasActivForwardImplicitGemmDlops_v5r1_nc0hwc1_kc
                                                   p_bias_grid,
                                                   p_c_grid);
             }
-            // else
-            //{
-            // const auto kernel =
-            // kernel_gemm_bias_activ_dlops_v3<GridwiseGemm,
-            // FloatAB,
-            // FloatC,
-            // remove_reference_t<AGridDesc_E0_E1_K0_K1_E2>,
-            // remove_reference_t<BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2>,
-            // remove_reference_t<CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2>,
-            // remove_reference_t<CBlockIdToBlockClusterAdaptor_K_N_H_W>,
-            // has_main_e0_block_loop,
-            // activ_type>;
+            else
+            {
+                const auto kernel = kernel_gemm_bias_activ_dlops_v3<
+                    GridwiseGemm,
+                    FloatAB,
+                    FloatC,
+                    remove_reference_t<AGridDesc_E0_E1_K0_K1_E2>,
+                    remove_reference_t<BGridDesc_E0_E1_N_H0_H1_H2_W0_W1_W2_E2>,
+                    remove_reference_t<CGridDesc_K0_K1_N_H0_H1_H2_W0_W1_W2>,
+                    remove_reference_t<CBlockIdToBlockClusterAdaptor_K_N_H_W>,
+                    has_main_e0_block_loop,
+                    activ_type>;
 
-            // ave_time = launch_and_time_kernel(kernel,
-            // nrepeat,
-            // dim3(grid_size),
-            // dim3(BlockSize),
-            // 0,
-            // p_a_grid,
-            // p_b_grid,
-            // p_bias_grid,
-            // p_c_grid);
-            //}
+                ave_time = launch_and_time_kernel(kernel,
+                                                  nrepeat,
+                                                  dim3(grid_size),
+                                                  dim3(BlockSize),
+                                                  0,
+                                                  p_a_grid,
+                                                  p_b_grid,
+                                                  p_bias_grid,
+                                                  p_c_grid);
+            }
         }
 #endif
         return ave_time;
