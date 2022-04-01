@@ -9,8 +9,7 @@
 #include "host_tensor.hpp"
 #include "host_tensor_generator.hpp"
 #include "device_tensor.hpp"
-#include "device_gemm_xdl.hpp"
-#include "device_gemm_xdl_c_shuffle.hpp"
+#include "device_gemm_xdl_cshuffle.hpp"
 #include "element_wise_operation.hpp"
 #include "reference_gemm.hpp"
 #include "gemm_specialization.hpp"
@@ -25,6 +24,8 @@ using Col = ck::tensor_layout::gemm::ColumnMajor;
 
 using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 
+static constexpr auto GemmDefault = ck::tensor_operation::device::GemmSpecialization::Default;
+
 using ADataType        = int8_t;
 using BDataType        = int8_t;
 using CDataType        = int32_t;
@@ -36,46 +37,48 @@ using BLayout = ck::tensor_layout::gemm::ColumnMajor;
 using CLayout = ck::tensor_layout::gemm::RowMajor;
 
 // clang-format off
-using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmXdl_C_Shuffle<
-    ADataType,              // ADataType
-    BDataType,              // BDataType
-    CDataType,              // CDataType
-    AccDataType,            // AccDataType
-    CShuffleDataType,        // CShuffleDataType
-    ALayout,                // ALayout
-    BLayout,                // BLayout
-    CLayout,                // CLayout
-    PassThrough,            // AElementwiseOperation
-    PassThrough,            // BElementwiseOperation
-    PassThrough,            // CElementwiseOperation
-    256,                    // BlockSize
-    256,                    // MPerBlock
-    128,                    // NPerBlock
-    64,                     // KPerBlock
-    16,                     // AK1
-    16,                     // BK1
-    32,                     // MPerXDL
-    32,                     // NPerXDL
-    4,                      // MXdlPerWave
-    2,                      // NXdlPerWave
-    S<4, 64, 1>,            // ABlockTransferThreadClusterLengths_K0_M_K1
-    S<1, 0, 2>,             // ABlockTransferThreadClusterArrangeOrder
-    S<1, 0, 2>,             // ABlockTransferSrcAccessOrder
-    2,                      // ABlockTransferSrcVectorDim
-    16,                     // ABlockTransferSrcScalarPerVector
-    16,                     // ABlockTransferDstScalarPerVector_K1
-    true,                   // ABlockLdsAddExtraM
-    S<4, 64, 1>,            // BBlockTransferThreadClusterLengths_K0_N_K1
-    S<1, 0, 2>,             // BBlockTransferThreadClusterArrangeOrder
-    S<1, 0, 2>,             // BBlockTransferSrcAccessOrder
-    2,                      // BBlockTransferSrcVectorDim
-    16,                     // BBlockTransferSrcScalarPerVector
-    16,                     // BBlockTransferDstScalarPerVector_K1
-    true,                   // BBlockLdsAddExtraN
-    1,                      // CShuffleMXdlPerWavePerShuffle
-    1,                      // CShuffleNXdlPerWavePerShuffle
-    S<1, 1, 32, 1, 1, 8>,   // CBlockTransferClusterLengths_MBlock_MXdlPerWave_MWaveMPerXdl_NBlock_NXdlPerWave_NWaveNPerXdl
-    4>;                     // CBlockTransferScalarPerVector_NWaveNPerXdl
+using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemm_Xdl_CShuffle<
+    Col, // ALayout
+    Row, // BLayout
+    Row, // CLayout
+    ADataType, // ADataType
+    BDataType, // BDataType
+    CDataType, // CDataType
+    AccDataType, // GemmAccDataType
+    CShuffleDataType, // CShuffleDataType
+    PassThrough, // AElementwiseOperation
+    PassThrough, // BElementwiseOperation
+    PassThrough, // CElementwiseOperation
+    GemmDefault, // GemmSpec
+    1, // NumGemmKPrefetchStage
+    256, // BlockSize
+    256, // MPerBlock
+    128, // NPerBlock
+    64, // KPerBlock
+    4, // AK1
+    4, // BK1
+    32, // MPerXDL
+    32, // NPerXDL
+    4, // MXdlPerWave
+    2, // NXdlPerWave
+    S<4, 64, 1>, // ABlockTransferThreadClusterLengths_AK0_M_AK1
+    S<0, 2, 1>, // ABlockTransferThreadClusterArrangeOrder
+    S<0, 2, 1>, // ABlockTransferSrcAccessOrder
+    1, // ABlockTransferSrcVectorDim
+    4, // ABlockTransferSrcScalarPerVector
+    4, // ABlockTransferDstScalarPerVector_AK1
+    0, // ABlockLdsExtraM
+    S<8, 32, 1>, // BBlockTransferThreadClusterLengths_BK0_N_BK1
+    S<0, 2, 1>, // BBlockTransferThreadClusterArrangeOrder
+    S<0, 2, 1>, // BBlockTransferSrcAccessOrder
+    1, // BBlockTransferSrcVectorDim
+    4, // BBlockTransferSrcScalarPerVector
+    4, // BBlockTransferDstScalarPerVector_BK1
+    0, // BBlockLdsExtraN
+    1, // CShuffleMXdlPerWavePerShuffle
+    1, // CShuffleNXdlPerWavePerShuffle
+    S<1, 16, 1, 16>, // CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock
+    4>; // CShuffleBlockTransferScalarPerVector_NPerBlock
 // clang-format on
 
 using ReferenceGemmInstance = ck::tensor_operation::host::
