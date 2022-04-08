@@ -29,9 +29,6 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
     static constexpr index_t MPerBlock = AK0MK1BlockDesc{}.GetLength(I1);
     static constexpr index_t NPerBlock = BK0NK1BlockDesc{}.GetLength(I1);
-    static constexpr index_t KPerBlock =
-        BK0NK1BlockDesc{}.GetLength(I0) * BK0NK1BlockDesc{}.GetLength(I2);
-    static constexpr index_t KPerInnerLoop = KPerBlock / 2; // MAC cluster = 2
 
     static constexpr index_t A_K0 = AK0MK1BlockDesc{}.GetLength(I0);
     static constexpr index_t B_K0 = BK0NK1BlockDesc{}.GetLength(I0);
@@ -39,6 +36,12 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     static constexpr index_t B_K1 = BK0NK1BlockDesc{}.GetLength(I2);
 
     static constexpr auto xdlops_gemm = XdlopsGemm<FloatAB, MPerXDL, NPerXDL, KPack>{};
+
+    static constexpr index_t KPerBlock =
+        BK0NK1BlockDesc{}.GetLength(I0) * BK0NK1BlockDesc{}.GetLength(I2);
+    static constexpr index_t KPerInnerLoop = math::max(
+        KPerBlock / 1, // MAC cluster = 1
+        KPack * xdlops_gemm.K0PerXdlops);
 
     static constexpr index_t MWaves = MPerBlock / (MRepeat * MPerXDL);
     static constexpr index_t NWaves = NPerBlock / (NRepeat * NPerXDL);
@@ -311,7 +314,9 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                             c_thread_buf.GetVectorTypeReference(Number<c_offset>{}));
                         if constexpr (int(k_)==0 && int(m0)==0 && int(n0)==0)
                         {
+                            __builtin_amdgcn_sched_barrier();
                             __builtin_amdgcn_s_setprio(1);
+                            __builtin_amdgcn_sched_barrier();
                         }
                     });
                 });
