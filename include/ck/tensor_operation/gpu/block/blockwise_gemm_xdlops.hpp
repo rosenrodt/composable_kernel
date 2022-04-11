@@ -295,9 +295,9 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
                         static_for<0, KPack, 1>{}([&](auto i) {
                             a_thread_vec.template AsType<FloatAB>()(i) = a_thread_buf
-                                [Number<a_thread_desc_.CalculateOffset(make_tuple(m0, 0, 0, k_ / xdlops_gemm.K0PerXdlops + i))>{}];
+                                [Number<a_thread_desc_.CalculateOffset(make_tuple(m0, 0, 0, k_ + i))>{}];
                             b_thread_vec.template AsType<FloatAB>()(i) = b_thread_buf
-                                [Number<b_thread_desc_.CalculateOffset(make_tuple(n0, 0, 0, k_ / xdlops_gemm.K0PerXdlops + i))>{}];
+                                [Number<b_thread_desc_.CalculateOffset(make_tuple(n0, 0, 0, k_ + i))>{}];
                         });
 
                         using mfma_input_type =
@@ -328,13 +328,13 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     }
 
     private:
-    // A[M0, M1, M2, KPerInnerLoop / xdlops_gemm.K0PerXdlops]
+    // A[M0, M1, M2, KPerInnerLoop]
     static constexpr auto a_thread_desc_ =
-        make_naive_tensor_descriptor_packed(make_tuple(Number<MRepeat>{}, I1, I1, Number<KPerInnerLoop / xdlops_gemm.K0PerXdlops>{}));
+        make_naive_tensor_descriptor_packed(make_tuple(Number<MRepeat>{}, I1, I1, Number<KPerInnerLoop>{}));
 
-    // B[N0, N1, N2, KPerInnerLoop / xdlops_gemm.K0PerXdlops]
+    // B[N0, N1, N2, KPerInnerLoop]
     static constexpr auto b_thread_desc_ =
-        make_naive_tensor_descriptor_packed(make_tuple(Number<NRepeat>{}, I1, I1, Number<KPerInnerLoop / xdlops_gemm.K0PerXdlops>{}));
+        make_naive_tensor_descriptor_packed(make_tuple(Number<NRepeat>{}, I1, I1, Number<KPerInnerLoop>{}));
 
     // C[M, N, NumRegXdlops]
     static constexpr auto c_thread_desc_ = make_naive_tensor_descriptor_packed(
@@ -344,7 +344,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                                          FloatAB,
                                                          decltype(a_block_desc_m0_m1_m2_k),
                                                          decltype(a_thread_desc_),
-                                                         Sequence<1, 1, 1, KPerInnerLoop / xdlops_gemm.K0PerXdlops>,
+                                                         Sequence<1, 1, 1, KPerInnerLoop>,
                                                          Sequence<0, 1, 2, 3>,
                                                          3,
                                                          A_K1,
@@ -354,7 +354,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                                          FloatAB,
                                                          decltype(b_block_desc_n0_n1_n2_k),
                                                          decltype(b_thread_desc_),
-                                                         Sequence<1, 1, 1, KPerInnerLoop / xdlops_gemm.K0PerXdlops>,
+                                                         Sequence<1, 1, 1, KPerInnerLoop>,
                                                          Sequence<0, 1, 2, 3>,
                                                          3,
                                                          B_K1,
