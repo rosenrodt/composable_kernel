@@ -54,10 +54,10 @@ int main(int argc, char* argv[])
     // {
     //     profile_grouped_gemm(argc, argv);
     // }
-    // else if(strcmp(argv[1], "conv_fwd") == 0)
-    // {
-    //     return profile_conv_fwd(argc, argv);
-    // }
+    else if(strcmp(argv[1], "conv_fwd") == 0)
+    {
+        return profile_conv_fwd(argc, argv);
+    }
     // else if(strcmp(argv[1], "conv_fwd_bias_relu") == 0)
     // {
     //     return profile_conv_fwd_bias_relu(argc, argv);

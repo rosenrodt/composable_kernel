@@ -29,7 +29,7 @@ set(PROFILER_SOURCE
     # src/profile_gemm_bias_relu_add.cpp
     # src/profile_gemm_reduce.cpp
     # src/profile_batched_gemm.cpp
-    # src/profile_conv_fwd.cpp
+    src/profile_conv_fwd.cpp
     # src/profile_conv_fwd_bias_relu.cpp
     # src/profile_conv_fwd_bias_relu_add.cpp
     # src/profile_conv_fwd_bias_relu_atomic_add.cpp
@@ -49,7 +49,7 @@ target_link_libraries(ckProfiler PRIVATE device_gemm_instance)
 # target_link_libraries(ckProfiler PRIVATE device_gemm_bias_relu_instance)
 # target_link_libraries(ckProfiler PRIVATE device_gemm_bias_relu_add_instance)
 # target_link_libraries(ckProfiler PRIVATE device_batched_gemm_instance)
-# target_link_libraries(ckProfiler PRIVATE device_conv2d_fwd_instance)
+target_link_libraries(ckProfiler PRIVATE device_conv2d_fwd_instance)
 # target_link_libraries(ckProfiler PRIVATE device_conv2d_fwd_bias_relu_instance)
 # target_link_libraries(ckProfiler PRIVATE device_conv2d_fwd_bias_relu_add_instance)
 # target_link_libraries(ckProfiler PRIVATE device_conv2d_fwd_bias_relu_atomic_add_instance)
