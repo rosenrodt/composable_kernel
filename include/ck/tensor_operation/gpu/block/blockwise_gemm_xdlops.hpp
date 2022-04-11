@@ -282,9 +282,9 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             // NOTE: sync thread at the start of each MAC cluster except for the first MAC cluster
             // A) we want waves in a workgroup in sync to prevent waves from other workgroups hijacking MAC resource
             // B) the barrier after the last local read also acts as safeguard against data hazard
-            if constexpr ( int(k) != 0 )
+            if constexpr ( int(k) != 0 || KPerInnerLoop == KPerBlock )
             {
-                __builtin_amdgcn_s_barrier();
+                asm volatile("s_barrier" ::);
                 __builtin_amdgcn_sched_barrier();
             }
             static_for<0, KPerInnerLoop, KPack * xdlops_gemm.K0PerXdlops>{}([&](auto k_) {
