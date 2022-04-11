@@ -38,6 +38,7 @@ tags
 
 # build-in-source directory
 build*
+trace*
 
 # emacs temporary/backup files
 .\#*
