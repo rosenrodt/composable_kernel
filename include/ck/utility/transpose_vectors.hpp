@@ -96,19 +96,23 @@ __device__ void transpose_int8_4x4(const int8x4_t& x0,
     int32_t t0, t1;
     int32_t z0, z1, z2, z3;
     constexpr int32_t m0 = 0x05010400;
-    constexpr int32_t m1 = 0x00010405; // note: careful with endianess
-    constexpr int32_t m2 = 0x02030607; // note: careful with endianess
+    constexpr int32_t m1 = 0x05040100;
+    constexpr int32_t m2 = 0x07060302;
     constexpr int32_t m3 = 0x07030602;
 
+    // ex: v_perm_b32(0x 11 22 33 44, 0x 55 66 77 88, 0x 05 01 04 00) -> 0x33774488
+    //                   -- -- -- --     -- -- -- --      -  -  -  -
+    //             index  7  6  5  4      3  2  1  0     33 77 44 88
+    // index is reversed becuase of little endianness (least significant bits first)
     // clang-format off
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t0) : "v"(bit_cast<int32_t>(x0)), "v"(bit_cast<int32_t>(x1)), "s"(m0));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t1) : "v"(bit_cast<int32_t>(x2)), "v"(bit_cast<int32_t>(x3)), "s"(m0));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z0) : "v"(bit_cast<int32_t>(t0)), "v"(bit_cast<int32_t>(t1)), "s"(m1));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z1) : "v"(bit_cast<int32_t>(t0)), "v"(bit_cast<int32_t>(t1)), "s"(m2));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t0) : "v"(bit_cast<int32_t>(x0)), "v"(bit_cast<int32_t>(x1)), "s"(m3));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t1) : "v"(bit_cast<int32_t>(x2)), "v"(bit_cast<int32_t>(x3)), "s"(m3));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z2) : "v"(bit_cast<int32_t>(t0)), "v"(bit_cast<int32_t>(t1)), "s"(m1));
-    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z3) : "v"(bit_cast<int32_t>(t0)), "v"(bit_cast<int32_t>(t1)), "s"(m2));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t0) : "v"(bit_cast<int32_t>(x1)), "v"(bit_cast<int32_t>(x0)), "s"(m0));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t1) : "v"(bit_cast<int32_t>(x3)), "v"(bit_cast<int32_t>(x2)), "s"(m0));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z0) : "v"(bit_cast<int32_t>(t1)), "v"(bit_cast<int32_t>(t0)), "s"(m1));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z1) : "v"(bit_cast<int32_t>(t1)), "v"(bit_cast<int32_t>(t0)), "s"(m2));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t0) : "v"(bit_cast<int32_t>(x1)), "v"(bit_cast<int32_t>(x0)), "s"(m3));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(t1) : "v"(bit_cast<int32_t>(x3)), "v"(bit_cast<int32_t>(x2)), "s"(m3));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z2) : "v"(bit_cast<int32_t>(t1)), "v"(bit_cast<int32_t>(t0)), "s"(m1));
+    asm volatile("v_perm_b32 %0, %1, %2, %3" : "=v"(z3) : "v"(bit_cast<int32_t>(t1)), "v"(bit_cast<int32_t>(t0)), "s"(m2));
     // clang-format on
 
     y0 = bit_cast<int8x4_t>(z0);
