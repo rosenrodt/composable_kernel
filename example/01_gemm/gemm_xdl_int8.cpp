@@ -11,8 +11,7 @@
 #include "host_tensor.hpp"
 #include "host_tensor_generator.hpp"
 #include "device_tensor.hpp"
-#include "device_gemm_xdl.hpp"
-#include "device_gemm_xdl_c_shuffle.hpp"
+#include "device_gemm_xdl_cshuffle.hpp"
 #include "element_wise_operation.hpp"
 #include "reference_gemm.hpp"
 #include "gemm_specialization.hpp"
@@ -29,55 +28,30 @@ using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 
 using ADataType        = int8_t;
 using BDataType        = int8_t;
-using CDataType        = int32_t;
+using CDataType        = int8_t;
 using AccDataType      = int32_t;
 using CShuffleDataType = int32_t;
 
-using ALayout = ck::tensor_layout::gemm::RowMajor;
-using BLayout = ck::tensor_layout::gemm::ColumnMajor;
-using CLayout = ck::tensor_layout::gemm::RowMajor;
+using ALayout = Col;
+using BLayout = Row;
+using CLayout = Row;
+
+static constexpr auto GemmDefault = ck::tensor_operation::device::GemmSpecialization::Default;
 
 // clang-format off
-using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmXdl_C_Shuffle<
-    ADataType,              // ADataType
-    BDataType,              // BDataType
-    CDataType,              // CDataType
-    AccDataType,            // AccDataType
-    CShuffleDataType,        // CShuffleDataType
-    ALayout,                // ALayout
-    BLayout,                // BLayout
-    CLayout,                // CLayout
-    PassThrough,            // AElementwiseOperation
-    PassThrough,            // BElementwiseOperation
-    PassThrough,            // CElementwiseOperation
-    256,                    // BlockSize
-    256,                    // MPerBlock
-    128,                    // NPerBlock
-    64,                     // KPerBlock
-    16,                     // AK1
-    16,                     // BK1
-    32,                     // MPerXDL
-    32,                     // NPerXDL
-    4,                      // MXdlPerWave
-    2,                      // NXdlPerWave
-    S<4, 64, 1>,            // ABlockTransferThreadClusterLengths_K0_M_K1
-    S<1, 0, 2>,             // ABlockTransferThreadClusterArrangeOrder
-    S<1, 0, 2>,             // ABlockTransferSrcAccessOrder
-    2,                      // ABlockTransferSrcVectorDim
-    16,                     // ABlockTransferSrcScalarPerVector
-    16,                     // ABlockTransferDstScalarPerVector_K1
-    true,                   // ABlockLdsAddExtraM
-    S<4, 64, 1>,            // BBlockTransferThreadClusterLengths_K0_N_K1
-    S<1, 0, 2>,             // BBlockTransferThreadClusterArrangeOrder
-    S<1, 0, 2>,             // BBlockTransferSrcAccessOrder
-    2,                      // BBlockTransferSrcVectorDim
-    16,                     // BBlockTransferSrcScalarPerVector
-    16,                     // BBlockTransferDstScalarPerVector_K1
-    true,                   // BBlockLdsAddExtraN
-    1,                      // CShuffleMXdlPerWavePerShuffle
-    1,                      // CShuffleNXdlPerWavePerShuffle
-    S<1, 1, 32, 1, 1, 8>,   // CBlockTransferClusterLengths_MBlock_MXdlPerWave_MWaveMPerXdl_NBlock_NXdlPerWave_NWaveNPerXdl
-    4>;                     // CBlockTransferScalarPerVector_NWaveNPerXdl
+using DeviceGemmInstance = ck::tensor_operation::device::
+        //#####################| ALayout| BLayout| CLayout|  AData|  BData|  CData| AccData| CShuffle|           A|           B|           C|           GEMM| NumGemmK| Block|  MPer|  NPer|  KPer| AK1| BK1| MPer| NPer| MXdl| NXdl|  ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockLds|  BBlockTransfer| BBlockTransfer| BBlockTransfer| BlockTransfer| BBlockTransfer| BBlockTransfer| BBlockLds|    CShuffle|    CShuffle| CBlockTransferClusterLengths|  CBlockTransfer|
+        //#####################|        |        |        |   Type|   Type|   Type|    Type| DataType| Elementwise| Elementwise| Elementwise| Spacialization| Prefetch|  Size| Block| Block| Block|    |    |  XDL|  XDL|  Per|  Per|   ThreadCluster|  ThreadCluster| SrcAccessOrder|   SrcVectorDim|      SrcScalar|      DstScalar| AddExtraM|   ThreadCluster|  ThreadCluster| SrcAccessOrder|  SrcVectorDim|      SrcScalar|      DstScalar| AddExtraN| MXdlPerWave| NXdlPerWave|         _MBlock_MWaveMPerXdl| ScalarPerVector|
+        //#####################|        |        |        |       |       |       |        |         |   Operation|   Operation|   Operation|               |    Stage|      |      |      |      |    |    |     |     | Wave| Wave| Lengths_K0_M_K1|   ArrangeOrder|               |               |      PerVector|   PerVector_K1|          | Lengths_K0_N_K1|   ArrangeOrder|               |              |      PerVector|   PerVector_K1|          |  PerShuffle|  PerShuffle|         _NBlock_NWaveNPerXdl|   _NWaveNPerXdl|
+        //#####################|        |        |        |       |       |       |        |         |            |            |            |               |         |      |      |      |      |    |    |     |     |     |     |                |               |               |               |               |               |          |                |               |               |              |               |               |          |            |            |                             |                |
+        // DeviceGemm_Xdl_CShuffle<     Col,     Row,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   256,    64,   128,    64,   4,   4,   32,   32,    1,    2,     S<16,16, 1>,     S<0, 2, 1>,     S<0, 2, 1>,              1,              4,              4,         0,     S<8, 32, 1>,     S<0, 2, 1>,     S<0, 2, 1>,             1,              4,              4,         0,           1,           1,               S<1, 64, 1, 4>,             16>;
+        // DeviceGemm_Xdl_CShuffle<     Col,     Row,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   128,   128,    64,    64,  16,  16,   32,   32,    2,    2,     S<4, 32, 1>,     S<0, 2, 1>,     S<0, 2, 1>,              1,              4,             16,         1,     S<4, 32, 1>,     S<0, 2, 1>,     S<0, 2, 1>,             1,              2,             16,         1,           1,           1,               S<1, 64, 1, 2>,             16>;
+        // DeviceGemm_Xdl_CShuffle<     Row,     Row,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   256,    64,   128,    64,  16,   4,   32,   32,    1,    2,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,             16,             16,         1,     S<8, 32, 1>,     S<0, 2, 1>,     S<0, 2, 1>,             1,              4,              4,         0,           1,           1,               S<1, 64, 1, 4>,             16>;
+        // DeviceGemm_Xdl_CShuffle<     Col,     Row,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   256,   128,   256,    64,  16,  16,   32,   32,    2,    4,     S<4, 64, 1>,     S<0, 2, 1>,     S<0, 2, 1>,              1,              2,             16,         1,     S<4, 64, 1>,     S<0, 2, 1>,     S<0, 2, 1>,             1,              4,             16,         1,           1,           1,               S<1, 64, 1, 4>,             16>;
+        // DeviceGemm_Xdl_CShuffle<     Row,     Col,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   256,   128,   256,    64,  16,  16,   32,   32,    2,    4,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,             16,             16,         1,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,             2,              8,              8,         1,           1,           1,               S<1, 32, 1, 4>,             16>;
+        DeviceGemm_Xdl_CShuffle<     Row,     Col,     Row, int8_t, int8_t, int8_t, int32_t,  int32_t, PassThrough, PassThrough, PassThrough,    GemmDefault,        1,   128,    64,   128,    64,  16,  16,   32,   32,    2,    2,     S<4, 32, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,             16,             16,         1,     S<4, 32, 1>,     S<1, 0, 2>,     S<1, 0, 2>,             2,              8,              8,         1,           1,           1,               S<1, 16, 1, 4>,             16>;
+
+
 // clang-format on
 
 using ReferenceGemmInstance = ck::tensor_operation::host::
@@ -85,7 +59,7 @@ using ReferenceGemmInstance = ck::tensor_operation::host::
 
 int main(int argc, char* argv[])
 {
-    bool do_verification = 0;
+    bool do_verification = 1;
     int init_method      = 0;
     int nrepeat          = 5;
 
@@ -157,9 +131,17 @@ int main(int argc, char* argv[])
         a_m_k.GenerateTensorValue(GeneratorTensor_2<ADataType>{-5, 5});
         b_k_n.GenerateTensorValue(GeneratorTensor_2<BDataType>{-5, 5});
         break;
-    default:
+    case 2:
         a_m_k.GenerateTensorValue(GeneratorTensor_3<ADataType>{0.0, 1.0});
         b_k_n.GenerateTensorValue(GeneratorTensor_3<BDataType>{-0.5, 0.5});
+        break;
+    case 3:
+        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
+        b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        break;
+    default:
+        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
     }
 
     DeviceMem a_m_k_device_buf(sizeof(ADataType) * a_m_k.mDesc.GetElementSpace());
