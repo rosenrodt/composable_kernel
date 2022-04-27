@@ -43,10 +43,10 @@ int main(int argc, char* argv[])
     // {
     //     return profile_gemm_reduce(argc, argv);
     // }
-    // else if(strcmp(argv[1], "batched_gemm") == 0)
-    // {
-    //     return profile_batched_gemm(argc, argv);
-    // }
+    else if(strcmp(argv[1], "batched_gemm") == 0)
+    {
+        return profile_batched_gemm(argc, argv);
+    }
     // else if(strcmp(argv[1], "batched_gemm_reduce") == 0)
     // {
     //     return profile_batched_gemm_reduce(argc, argv);
