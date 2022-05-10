@@ -248,19 +248,24 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         return c_grid_desc_mblock_mperblock_nblock_nperblock;
     }
 
-    // return block_id to C matrix tile idx (m0, n0) mapping
-    __host__ __device__ static constexpr auto
-    MakeDefaultBlock2CTileMap(const CGridDesc_M_N& c_grid_desc_m_n)
-    {
-        return BlockToCTileMap_M00_N00_M01_N01<MPerBlock, NPerBlock, CGridDesc_M_N>(
-            c_grid_desc_m_n);
-    }
-
     using CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock = remove_cvref_t<decltype(
         MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(CGridDesc_M_N{}))>;
 
-    using DefaultBlock2CTileMap =
-        remove_cvref_t<decltype(MakeDefaultBlock2CTileMap(CGridDesc_M_N{}))>;
+    // return block_id to C matrix tile idx (m0, n0) mapping
+    __host__ __device__ static constexpr auto
+    MakeDefaultBlock2CTileMap(const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
+                                  c_grid_desc_mblock_mperblock_nblock_nperblock)
+    {
+        // return BlockToCTileMap_N00_M0_N01Adapt<MPerBlock,
+        // return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock,
+        return BlockToCTileMap_M00_N00_M01_N01<MPerBlock,
+                                               NPerBlock,
+                                               CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock>(
+            c_grid_desc_mblock_mperblock_nblock_nperblock);
+    }
+
+    using DefaultBlock2CTileMap = remove_cvref_t<decltype(
+        MakeDefaultBlock2CTileMap(CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock{}))>;
 
     template <bool HasMainKBlockLoop, typename Block2CTileMap>
     __device__ static void Run(const FloatAB* __restrict__ p_a_grid,

@@ -42,3 +42,5 @@ add_subdirectory(17_convnd_bwd_data_xdl)
 add_subdirectory(15_grouped_gemm)
 add_subdirectory(16_gemm_reduce)
 add_subdirectory(18_batched_gemm_reduce)
+
+add_subdirectory(99_block_to_ctile_map)
