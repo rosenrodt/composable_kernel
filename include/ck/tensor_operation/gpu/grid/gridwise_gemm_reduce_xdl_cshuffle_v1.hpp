@@ -3,6 +3,7 @@
 #include "multi_index_transform_helper.hpp"
 #include "tensor_descriptor.hpp"
 #include "tensor_descriptor_helper.hpp"
+#include "block_to_ctile_map.hpp"
 #include "blockwise_gemm_xdlops.hpp"
 #include "thread_group_tensor_slice_transfer_v4r1.hpp"
 #include "thread_group_tensor_slice_transfer_v6r1.hpp"
@@ -252,17 +253,6 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         return true;
     }
 
-    __host__ __device__ static constexpr index_t
-    CalculateGridSize(const CGridDesc_M_N& c_grid_desc_m_n)
-    {
-        const auto M = c_grid_desc_m_n.GetLength(I0);
-        const auto N = c_grid_desc_m_n.GetLength(I1);
-
-        const index_t grid_size = (M / MPerBlock) * (N / NPerBlock);
-
-        return grid_size;
-    }
-
     __host__ __device__ static constexpr bool CalculateHasMainKBlockLoop(index_t K)
     {
         const index_t num_loop = K / KPerBlock;
@@ -304,54 +294,25 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         return d_grid_desc_mblock_mperblock;
     }
 
-    // return block_id to C matrix tile idx (m0, n0) mapping
-    __host__ __device__ static constexpr auto
-    MakeDefaultBlock2CTileMap(const CGridDesc_M_N& c_grid_desc_m_n)
-    {
-        const auto M = c_grid_desc_m_n.GetLength(I0);
-        const auto N = c_grid_desc_m_n.GetLength(I1);
-
-        constexpr auto M1 = Number<MPerBlock>{};
-        constexpr auto N1 = Number<NPerBlock>{};
-
-        const auto M0 = M / M1;
-        const auto N0 = N / N1;
-
-        // FIXME: remove
-        constexpr auto M01 = I1;
-        constexpr auto N01 = I1;
-
-        const auto M00 = M0 / M01;
-        const auto N00 = N0 / N01;
-
-        const auto m00_m01_n00_n01_to_m0_n0_block_cluster_adaptor =
-            make_single_stage_tensor_adaptor(
-                make_tuple(make_unmerge_transform(make_tuple(M00, M01)),
-                           make_unmerge_transform(make_tuple(N00, N01))),
-                make_tuple(Sequence<0>{}, Sequence<1>{}),
-                make_tuple(Sequence<0, 2>{}, Sequence<1, 3>{}));
-
-        const auto cblockid_to_m00_m01_n00_n01_block_cluster_adaptor =
-            make_single_stage_tensor_adaptor(
-                make_tuple(make_merge_transform(make_tuple(M00, N00, M01, N01))),
-                make_tuple(Sequence<0, 1, 2, 3>{}),
-                make_tuple(Sequence<0>{}));
-
-        const auto cblockid_to_m0_n0_block_cluster_adaptor =
-            chain_tensor_adaptors(m00_m01_n00_n01_to_m0_n0_block_cluster_adaptor,
-                                  cblockid_to_m00_m01_n00_n01_block_cluster_adaptor);
-
-        return cblockid_to_m0_n0_block_cluster_adaptor;
-    }
-
     using CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock = remove_cvref_t<decltype(
         MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(CGridDesc_M_N{}))>;
 
     using DGridDescriptor_MBlock_MPerBlock =
         remove_cvref_t<decltype(MakeDGridDescriptor_MBlock_MPerBlock(DGridDesc_M{}))>;
 
-    using DefaultBlock2CTileMap =
-        remove_cvref_t<decltype(MakeDefaultBlock2CTileMap(CGridDesc_M_N{}))>;
+    // return block_id to C matrix tile idx (m0, n0) mapping
+    __host__ __device__ static constexpr auto
+    MakeDefaultBlock2CTileMap(const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
+                                  c_grid_desc_mblock_mperblock_nblock_nperblock)
+    {
+        return BlockToCTileMap_M00_N00_M01_N01<MPerBlock,
+                                               NPerBlock,
+                                               CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock>(
+            c_grid_desc_mblock_mperblock_nblock_nperblock);
+    }
+
+    using DefaultBlock2CTileMap = remove_cvref_t<decltype(
+        MakeDefaultBlock2CTileMap(CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock{}))>;
 
     template <bool HasMainKBlockLoop, typename Block2CTileMap>
     __device__ static void Run(const FloatAB* __restrict__ p_a_grid,
