@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
         StrideB = std::stoi(argv[8]);
         StrideC = std::stoi(argv[9]);
 
-        BatchCount = std::stoi(argv[9]);
+        BatchCount = std::stoi(argv[10]);
     }
     else
     {
@@ -264,7 +264,7 @@ int main(int argc, char* argv[])
 
                 for(int n = 0; n < N; ++n)
                 {
-                    float d0_val = ck::type_convert<float>(c_g_m_n_host_result(m, n));
+                    float d0_val = ck::type_convert<float>(c_g_m_n_host_result(batch, m, n));
                     float d1_val;
 
                     d1_element_op(d1_val, d0_val);
