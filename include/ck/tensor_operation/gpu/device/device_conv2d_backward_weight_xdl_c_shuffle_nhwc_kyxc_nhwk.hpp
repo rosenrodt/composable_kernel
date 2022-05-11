@@ -290,8 +290,8 @@ struct DeviceConv2dBwdWeightXdl_C_Shuffle_Input_N_Hi_Wi_C_Weight_K_Y_X_C_Output_
     using CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock =
         decltype(GridwiseGemm::MakeCGridDesc_MBlock_MPerBlock_NBlock_NPerBlock(CGridDesc_M_N{}));
 
-    using Block2CTileMap =
-        decltype(GridwiseGemm::MakeCBlockClusterAdaptor(CGridDesc_M_N{}, 1, 1, 1));
+    using Block2CTileMap = decltype(GridwiseGemm::MakeCBlockClusterAdaptor(
+        CGridDesc_MBlock_MPerBlock_NBlock_NPerBlock{}, 1, 1, 1));
     struct Argument : public BaseArgument
     {
         Argument(const InDataType* p_in_grid,
@@ -362,8 +362,8 @@ struct DeviceConv2dBwdWeightXdl_C_Shuffle_Input_N_Hi_Wi_C_Weight_K_Y_X_C_Output_
                 c_grid_desc_mblock_mperblock_nblock_nperblock_ =
                     GridwiseGemm::MakeCGridDesc_MBlock_MPerBlock_NBlock_NPerBlock(c_grid_desc_m_n_);
 
-                block_2_ctile_map_ =
-                    GridwiseGemm::MakeCBlockClusterAdaptor(c_grid_desc_m_n_, M01, N01, k_batch_);
+                block_2_ctile_map_ = GridwiseGemm::MakeCBlockClusterAdaptor(
+                    c_grid_desc_mblock_mperblock_nblock_nperblock_, M01, N01, k_batch_);
             }
         }
 
@@ -428,7 +428,8 @@ struct DeviceConv2dBwdWeightXdl_C_Shuffle_Input_N_Hi_Wi_C_Weight_K_Y_X_C_Output_
                     "wrong! GridwiseGemm_km_kn_m0m1n0n1_xdlops_v3r1 has invalid setting");
             }
             const auto kbatch       = arg.a_grid_desc_kbatch_k0_m_k1_.GetLength(I0);
-            const index_t grid_size = GridwiseGemm::CalculateGridSize(arg.c_grid_desc_m_n_, kbatch);
+            const index_t grid_size = args.block_2_ctile_map_.CalculateGridSize(
+                arg.c_grid_desc_mblock_mperblock_nblock_nperblock_);
 
             const auto K0 = arg.a_grid_desc_kbatch_k0_m_k1_.GetLength(I1);
 
