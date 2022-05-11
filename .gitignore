@@ -1,48 +1,55 @@
-# Compiled Object files
+#Compiled Object files
 *.slo
 *.lo
 *.o
 *.obj
 
-# Precompiled Headers
+#Precompiled Headers
 *.gch
 *.pch
 *.ipch
 
-# Compiled Dynamic libraries
+#Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
 
-# Fortran module files
+#Fortran module files
 *.mod
 
-# Compiled Static libraries
+#Compiled Static libraries
 *.lai
 *.la
 *.a
 *.lib
 
-# Executables
+#Executables
 *.exe
 *.out
 *.app
 
-# vim tags
+#vim tags
 tags
 .tags
 .*.swp
 
-# Editors
+#Editors
 .vscode
 
-# build-in-source directory
+#build - in - source directory
 build*
 
-# emacs temporary/backup files
+#emacs temporary / backup files
 .\#*
 \#*\#
 *~
 
-# GDB temporary files
+#GDB temporary files
 .gdb_history
+# /*
+build
+trace
+/*.sh
+/*.txt
+/*.tgz
+/*.csv

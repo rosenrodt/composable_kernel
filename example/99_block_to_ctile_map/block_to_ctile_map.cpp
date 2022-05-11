@@ -12,8 +12,8 @@ static auto I3 = Number<3>{};
 
 int main()
 {
-    const index_t M         = 768;
-    const index_t N         = 768;
+    const index_t M         = 384;
+    const index_t N         = 384;
     const index_t MPerBlock = 128;
     const index_t NPerBlock = 128;
     const index_t MBlock    = M / MPerBlock;
@@ -37,9 +37,8 @@ int main()
     {
         auto m0n0_idx = tile_map.CalculateBottomIndex(make_multi_index(i));
         // std::cout << "i = " << i << ", m0, n0 = " << m0n0_idx[I0] << ", " << m0n0_idx[I1];
-        std::cout << "i = " << i << ", k, m0, n0 = " << m0n0_idx[I0] << ", " << m0n0_idx[I1] << ", "
-                  << m0n0_idx[I2];
-        std::cout << ", valid = " << tile_map.ValidCTileIndex(m0n0_idx, c_grid_desc_m0_m1_n0_n1)
+        std::cout << "i = " << i << ", k, m0, n0 = " << m0n0_idx[I0] << ", " << m0n0_idx[I1] << ", " << m0n0_idx[I2];
+        std::cout << ", valid = " << tile_map.ValidCTileIndex(m0n0_idx, make_tuple(MBlock, NBlock))
                   << std::endl;
     }
     return 0;

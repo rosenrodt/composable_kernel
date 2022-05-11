@@ -9,7 +9,7 @@
 namespace ck {
 
 // Columns of row-vectors
-template <typename CGridDesc_M0_M1_N0_N1>
+template <index_t MPerBlock, index_t NPerBlock, typename CGridDesc_M_N>
 struct BlockToCTileMap_N00_M0_N01Adapt
 {
     static constexpr auto I0 = Number<0>{};
@@ -20,16 +20,16 @@ struct BlockToCTileMap_N00_M0_N01Adapt
     __host__ __device__ BlockToCTileMap_N00_M0_N01Adapt() = default;
 
     __host__ __device__ BlockToCTileMap_N00_M0_N01Adapt(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t N01 = 8)
-        : N01_(N01), c_grid_desc_m0_m1_n0_n1_(c_grid_desc_m0_m1_n0_n1)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t N01 = 8)
+        : N01_(N01), c_grid_desc_m0_m1_n0_n1_(c_grid_desc_m_n)
     {
     }
 
     __host__ constexpr index_t
-    CalculateGridSize(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1) const
+    CalculateGridSize(const CGridDesc_M_N& c_grid_desc_m_n) const
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const index_t grid_size = M0 * N0;
 
@@ -53,10 +53,10 @@ struct BlockToCTileMap_N00_M0_N01Adapt
 
     private:
     __host__ __device__ static constexpr auto GetBlockToCTileMap(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t N01, index_t block_1d_id)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t N01, index_t block_1d_id)
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto N00 = N0 / N01;
 
@@ -83,11 +83,11 @@ struct BlockToCTileMap_N00_M0_N01Adapt
     }
 
     index_t N01_;
-    CGridDesc_M0_M1_N0_N1 c_grid_desc_m0_m1_n0_n1_;
+    CGridDesc_M_N c_grid_desc_m0_m1_n0_n1_;
 };
 
 // Rows of column-vectors
-template <typename CGridDesc_M0_M1_N0_N1>
+template <typename CGridDesc_M_N>
 struct BlockToCTileMap_M00_N0_M01Adapt
 {
     static constexpr auto I0 = Number<0>{};
@@ -98,16 +98,16 @@ struct BlockToCTileMap_M00_N0_M01Adapt
     __host__ __device__ BlockToCTileMap_M00_N0_M01Adapt() = default;
 
     __host__ __device__ BlockToCTileMap_M00_N0_M01Adapt(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t M01 = 1)
-        : M01_(M01), c_grid_desc_m0_m1_n0_n1_(c_grid_desc_m0_m1_n0_n1)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t M01 = 1)
+        : M01_(M01), c_grid_desc_m0_m1_n0_n1_(c_grid_desc_m_n)
     {
     }
 
     __host__ constexpr index_t
-    CalculateGridSize(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1) const
+    CalculateGridSize(const CGridDesc_M_N& c_grid_desc_m_n) const
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const index_t grid_size = M0 * N0;
 
@@ -131,10 +131,10 @@ struct BlockToCTileMap_M00_N0_M01Adapt
 
     private:
     __host__ __device__ static constexpr auto GetBlockToCTileMap(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t M01, index_t block_1d_id)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t M01, index_t block_1d_id)
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto M00 = M0 / M01;
 
@@ -161,11 +161,11 @@ struct BlockToCTileMap_M00_N0_M01Adapt
     }
 
     index_t M01_;
-    CGridDesc_M0_M1_N0_N1 c_grid_desc_m0_m1_n0_n1_;
+    CGridDesc_M_N c_grid_desc_m0_m1_n0_n1_;
 };
 
 // Blocks of row-vectors
-template <typename CGridDesc_M0_M1_N0_N1>
+template <typename CGridDesc_M_N>
 struct BlockToCTileMap_M00_N00_M01_N01
 {
     static constexpr auto I0 = Number<0>{};
@@ -176,18 +176,18 @@ struct BlockToCTileMap_M00_N00_M01_N01
     __host__ __device__ BlockToCTileMap_M00_N00_M01_N01() = default;
 
     __host__ __device__ BlockToCTileMap_M00_N00_M01_N01(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t M01 = 1, index_t N01 = 1)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t M01 = 1, index_t N01 = 1)
         : M01_(M01),
           N01_(N01),
-          underlying_map_(GetBlockToCTileMap(c_grid_desc_m0_m1_n0_n1, M01, N01))
+          underlying_map_(GetBlockToCTileMap(c_grid_desc_m_n, M01, N01))
     {
     }
 
     __host__ constexpr index_t
-    CalculateGridSize(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1) const
+    CalculateGridSize(const CGridDesc_M_N& c_grid_desc_m_n) const
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto M00 = math::integer_divide_ceil(M0, M01_);
         const auto N00 = math::integer_divide_ceil(N0, N01_);
@@ -212,10 +212,10 @@ struct BlockToCTileMap_M00_N00_M01_N01
 
     private:
     __host__ __device__ static constexpr auto GetBlockToCTileMap(
-        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t M01, index_t N01)
+        const CGridDesc_M_N& c_grid_desc_m_n, index_t M01, index_t N01)
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto M00 = math::integer_divide_ceil(M0, M01);
         const auto N00 = math::integer_divide_ceil(N0, N01);
@@ -241,12 +241,12 @@ struct BlockToCTileMap_M00_N00_M01_N01
     }
 
     index_t M01_, N01_;
-    using UnderlyingMap = decltype(GetBlockToCTileMap(CGridDesc_M0_M1_N0_N1{}, 1, 1));
+    using UnderlyingMap = decltype(GetBlockToCTileMap(CGridDesc_M_N{}, 1, 1));
     UnderlyingMap underlying_map_;
 };
 
 // 2D slices of row-vectors in 3D space
-template <typename CGridDesc_M0_M1_N0_N1>
+template <typename CGridDesc_M_N>
 struct BlockToCTileMap_KSplit_M00_N00_M01_N01
 {
     static constexpr auto I0 = Number<0>{};
@@ -257,22 +257,22 @@ struct BlockToCTileMap_KSplit_M00_N00_M01_N01
     __host__ BlockToCTileMap_KSplit_M00_N00_M01_N01() = default;
 
     __host__
-    BlockToCTileMap_KSplit_M00_N00_M01_N01(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1,
+    BlockToCTileMap_KSplit_M00_N00_M01_N01(const CGridDesc_M_N& c_grid_desc_m_n,
                                            index_t M01    = 1,
                                            index_t N01    = 1,
                                            index_t KSplit = 1)
         : M01_(M01),
           N01_(N01),
           KSplit_(KSplit),
-          underlying_map_(GetBlockToCTileMap(c_grid_desc_m0_m1_n0_n1, M01, N01, KSplit))
+          underlying_map_(GetBlockToCTileMap(c_grid_desc_m_n, M01, N01, KSplit))
     {
     }
 
     __host__ constexpr index_t
-    CalculateGridSize(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1) const
+    CalculateGridSize(const CGridDesc_M_N& c_grid_desc_m_n) const
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto M00 = math::integer_divide_ceil(M0, M01_);
         const auto N00 = math::integer_divide_ceil(N0, N01_);
@@ -297,13 +297,13 @@ struct BlockToCTileMap_KSplit_M00_N00_M01_N01
 
     private:
     __host__ static constexpr auto
-    GetBlockToCTileMap(const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1,
+    GetBlockToCTileMap(const CGridDesc_M_N& c_grid_desc_m_n,
                        index_t M01,
                        index_t N01,
                        index_t KSplit)
     {
-        const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
-        const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
+        const auto M0 = c_grid_desc_m_n.GetLength(I0);
+        const auto N0 = c_grid_desc_m_n.GetLength(I2);
 
         const auto M00 = math::integer_divide_ceil(M0, M01);
         const auto N00 = math::integer_divide_ceil(N0, N01);
@@ -330,7 +330,7 @@ struct BlockToCTileMap_KSplit_M00_N00_M01_N01
     }
 
     index_t M01_, N01_, KSplit_;
-    using UnderlyingMap = decltype(GetBlockToCTileMap(CGridDesc_M0_M1_N0_N1{}, 1, 1, 1));
+    using UnderlyingMap = decltype(GetBlockToCTileMap(CGridDesc_M_N{}, 1, 1, 1));
     UnderlyingMap underlying_map_;
 };
 
