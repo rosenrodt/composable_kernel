@@ -234,15 +234,14 @@ struct BlockToCTileMap_M00_N00_M01_N01
     }
 
     private:
-    template <typename CGridDesc_M_N_>
-    __host__ __device__ static constexpr auto
-    GetBlockToCTileMap(const CGridDesc_M_N_& c_grid_desc_m0_m1_n0_n1, index_t M01, index_t N01)
+    __host__ __device__ static constexpr auto GetBlockToCTileMap(
+        const CGridDesc_M0_M1_N0_N1& c_grid_desc_m0_m1_n0_n1, index_t M01, index_t N01)
     {
         const auto M0 = c_grid_desc_m0_m1_n0_n1.GetLength(I0);
         const auto N0 = c_grid_desc_m0_m1_n0_n1.GetLength(I2);
 
-        const auto M00 = M0 / M01;
-        const auto N00 = N0 / N01;
+        const auto M00 = math::integer_divide_ceil(M0, M01);
+        const auto N00 = math::integer_divide_ceil(N0, N01);
 
         const auto m00_m01_n00_n01_to_m0_n0_block_cluster_adaptor =
             make_single_stage_tensor_adaptor(
