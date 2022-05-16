@@ -8,20 +8,23 @@
 
 namespace ck {
 
-// Columns of row-vectors
-template <index_t MPerBlock, index_t NPerBlock, typename CGridDesc_M_N>
-struct BlockToCTileMap_N00_M0_N01Adapt
+// Rows of column-vectors
+template <index_t MPerBlock,
+          index_t NPerBlock,
+          typename CGridDesc_M_N,
+          bool DeviceCTileIndexCheck = false>
+struct BlockToCTileMap_M00_N0_M01
 {
     static constexpr auto I0 = Number<0>{};
     static constexpr auto I1 = Number<1>{};
     static constexpr auto I2 = Number<2>{};
     static constexpr auto I3 = Number<3>{};
 
-    __host__ __device__ BlockToCTileMap_N00_M0_N01Adapt() = default;
+    __host__ __device__ BlockToCTileMap_M00_N0_M01() = default;
 
-    __host__ __device__ BlockToCTileMap_N00_M0_N01Adapt(const CGridDesc_M_N& c_grid_desc_m_n,
-                                                        index_t N01 = 8)
-        : N01_(N01), c_grid_desc_m_n_(c_grid_desc_m_n)
+    __host__ __device__ BlockToCTileMap_M00_N0_M01(const CGridDesc_M_N& c_grid_desc_m_n,
+                                                   index_t M01 = 1)
+        : M01_(M01), underlying_map_(GetBlockToCTileMap(c_grid_desc_m_n, M01))
     {
     }
 
@@ -30,7 +33,9 @@ struct BlockToCTileMap_N00_M0_N01Adapt
         const auto M0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I0), MPerBlock);
         const auto N0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I1), NPerBlock);
 
-        const index_t grid_size = M0 * N0;
+        const auto M00 = math::integer_divide_ceil(M0, M01_);
+
+        const index_t grid_size = M00 * M01_ * N0;
 
         return grid_size;
     }
@@ -38,57 +43,71 @@ struct BlockToCTileMap_N00_M0_N01Adapt
     template <typename TopIdx>
     __host__ __device__ constexpr auto CalculateBottomIndex(const TopIdx& idx_top) const
     {
-        const auto underlying_map = GetBlockToCTileMap(c_grid_desc_m_n_, N01_, idx_top[I0]);
-        return underlying_map.CalculateBottomIndex(idx_top);
+        return underlying_map_.CalculateBottomIndex(idx_top);
     }
 
     template <typename CTileIdx, typename CTileDim>
-    __host__ __device__ bool ValidCTileIndex(const CTileIdx& /* c_tile_idx */,
-                                             const CTileDim& /* c_tile_dim */) const
+    __host__ __device__ bool ValidCTileIndex(const CTileIdx& c_tile_idx,
+                                             const CTileDim& c_tile_dim) const
     {
-        constexpr bool ret = true;
-        return ret; // always valid provided that user gets grid size from CalculateGridSize()
+        if constexpr(DeviceCTileIndexCheck)
+            return DefaultValidCTileIndex(c_tile_idx, c_tile_dim);
+        else
+            return true;
     }
 
-    __host__ bool CheckValidity(const CGridDesc_M_N& /* c_grid_desc_m_n */) const { return true; }
+    __host__ bool CheckValidity(const CGridDesc_M_N& c_grid_desc_m_n) const
+    {
+        if constexpr(DeviceCTileIndexCheck)
+            return true; // validity check moved to kernel
+
+        const index_t M0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I0), MPerBlock);
+        if(M0 % M01_ == 0)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
 
     private:
     __host__ __device__ static constexpr auto
-    GetBlockToCTileMap(const CGridDesc_M_N& c_grid_desc_m_n, index_t N01, index_t block_1d_id)
+    GetBlockToCTileMap(const CGridDesc_M_N& c_grid_desc_m_n, index_t M01)
     {
         const auto M0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I0), MPerBlock);
         const auto N0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I1), NPerBlock);
 
-        const auto N00 = N0 / N01;
+        const auto M00 = math::integer_divide_ceil(M0, M01);
 
-        const auto N01_adapt = (block_1d_id < M0 * N00 * N01) ? N01 : N0 % N01;
+        const auto m00_n0_m01_to_m0_n0_block_cluster_adaptor = make_single_stage_tensor_adaptor(
+            make_tuple(make_insert_transform(1),
+                       make_unmerge_transform(make_tuple(M00, M01)),
+                       make_pass_through_transform(make_tuple(N0))),
+            make_tuple(Sequence<>{}, Sequence<0>{}, Sequence<1>{}),
+            make_tuple(Sequence<0>{}, Sequence<1, 3>{}, Sequence<2>{}));
 
-        const auto n00_m0_n01adapt_to_m0_n0_block_cluster_adaptor =
-            make_single_stage_tensor_adaptor(
-                make_tuple(make_pass_through_transform(make_tuple(M0)),
-                           make_unmerge_transform(make_tuple(N00, N01_adapt))),
-                make_tuple(Sequence<0>{}, Sequence<1>{}),
-                make_tuple(Sequence<1>{}, Sequence<0, 2>{}));
-
-        const auto cblockid_to_n00_m0_n01adapt_block_cluster_adaptor =
-            make_single_stage_tensor_adaptor(
-                make_tuple(make_merge_transform(make_tuple(N00, M0, N01_adapt))),
-                make_tuple(Sequence<0, 1, 2>{}),
-                make_tuple(Sequence<0>{}));
+        const auto cblockid_to_m00_n0_m01_block_cluster_adaptor = make_single_stage_tensor_adaptor(
+            make_tuple(make_merge_transform(make_tuple(1, M00, N0, M01))),
+            make_tuple(Sequence<0, 1, 2, 3>{}),
+            make_tuple(Sequence<0>{}));
 
         const auto cblockid_to_m0_n0_block_cluster_adaptor =
-            chain_tensor_adaptors(n00_m0_n01adapt_to_m0_n0_block_cluster_adaptor,
-                                  cblockid_to_n00_m0_n01adapt_block_cluster_adaptor);
+            chain_tensor_adaptors(m00_n0_m01_to_m0_n0_block_cluster_adaptor,
+                                  cblockid_to_m00_n0_m01_block_cluster_adaptor);
 
         return cblockid_to_m0_n0_block_cluster_adaptor;
     }
 
-    index_t N01_;
-    CGridDesc_M_N c_grid_desc_m_n_;
+    index_t M01_;
+    using UnderlyingMap = decltype(GetBlockToCTileMap(CGridDesc_M_N{}, 1));
+    UnderlyingMap underlying_map_;
 };
 
-// Rows of column-vectors
-template <index_t MPerBlock, index_t NPerBlock, typename CGridDesc_M_N>
+// Rows of column-vectorsif
+// This C-tile map dynamically adjusts M01 when C-tile index is out of range
+template <index_t MPerBlock, index_t NPerBlock, typename CGridDesc_M_N, index_t M01 = 8>
 struct BlockToCTileMap_M00_N0_M01Adapt
 {
     static constexpr auto I0 = Number<0>{};
@@ -98,9 +117,8 @@ struct BlockToCTileMap_M00_N0_M01Adapt
 
     __host__ __device__ BlockToCTileMap_M00_N0_M01Adapt() = default;
 
-    __host__ __device__ BlockToCTileMap_M00_N0_M01Adapt(const CGridDesc_M_N& c_grid_desc_m_n,
-                                                        index_t M01 = 1)
-        : M01_(M01), c_grid_desc_m_n_(c_grid_desc_m_n)
+    __host__ __device__ BlockToCTileMap_M00_N0_M01Adapt(const CGridDesc_M_N& c_grid_desc_m_n)
+        : c_grid_desc_m_n_(c_grid_desc_m_n)
     {
     }
 
@@ -117,23 +135,45 @@ struct BlockToCTileMap_M00_N0_M01Adapt
     template <typename TopIdx>
     __host__ __device__ constexpr auto CalculateBottomIndex(const TopIdx& idx_top) const
     {
-        const auto underlying_map = GetBlockToCTileMap(c_grid_desc_m_n_, M01_, idx_top[I0]);
+#if 0
+        // TODO: This version generates so many branch codes that it is not useable at this moment
+        const auto underlying_map = GetBlockToCTileMap(c_grid_desc_m_n_, idx_top[I0]);
         return underlying_map.CalculateBottomIndex(idx_top);
+
+#else
+        auto block_1d_id = idx_top[I0];
+
+        const auto M0 = math::integer_divide_ceil(c_grid_desc_m_n_.GetLength(I0), MPerBlock);
+        const auto N0 = math::integer_divide_ceil(c_grid_desc_m_n_.GetLength(I1), NPerBlock);
+
+        block_1d_id = block_1d_id % (M0 * N0); // swallow batch index
+
+        index_t idx_N0 = block_1d_id % N0;
+        index_t idx_M0 = block_1d_id / N0;
+
+        const auto M01_adapt = (idx_M0 < M0 - M0 % M01) ? M01 : M0 % M01;
+
+        index_t idx_M00          = idx_M0 / M01;
+        index_t idx_M01          = idx_M0 % M01;
+        index_t idx_N0_M01_local = idx_N0 + idx_M01 * N0;
+
+        return make_tuple(idx_N0_M01_local % M01_adapt + idx_M00 * M01,
+                          idx_N0_M01_local / M01_adapt);
+#endif
     }
 
     template <typename CTileIdx, typename CTileDim>
     __host__ __device__ bool ValidCTileIndex(const CTileIdx& /* c_tile_idx */,
                                              const CTileDim& /* c_tile_dim */) const
     {
-        constexpr bool ret = true;
-        return ret; // always valid provided that user gets grid size from CalculateGridSize()
+        return true; // always valid provided that user gets grid size from CalculateGridSize()
     }
 
     __host__ bool CheckValidity(const CGridDesc_M_N& /* c_grid_desc_m_n */) const { return true; }
 
     private:
     __host__ __device__ static constexpr auto
-    GetBlockToCTileMap(const CGridDesc_M_N& c_grid_desc_m_n, index_t M01, index_t block_1d_id)
+    GetBlockToCTileMap(const CGridDesc_M_N& c_grid_desc_m_n, index_t block_1d_id)
     {
         const auto M0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I0), MPerBlock);
         const auto N0 = math::integer_divide_ceil(c_grid_desc_m_n.GetLength(I1), NPerBlock);
@@ -144,15 +184,16 @@ struct BlockToCTileMap_M00_N0_M01Adapt
 
         const auto m00_n0_m01adapt_to_m0_n0_block_cluster_adaptor =
             make_single_stage_tensor_adaptor(
-                make_tuple(make_unmerge_transform(make_tuple(M00, M01_adapt)),
+                make_tuple(make_insert_transform(1),
+                           make_unmerge_transform(make_tuple(M00, M01_adapt)),
                            make_pass_through_transform(make_tuple(N0))),
-                make_tuple(Sequence<0>{}, Sequence<1>{}),
-                make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+                make_tuple(Sequence<>{}, Sequence<0>{}, Sequence<1>{}),
+                make_tuple(Sequence<0>{}, Sequence<1, 3>{}, Sequence<2>{}));
 
         const auto cblockid_to_m00_n0_m01adapt_block_cluster_adaptor =
             make_single_stage_tensor_adaptor(
-                make_tuple(make_merge_transform(make_tuple(M00, N0, M01_adapt))),
-                make_tuple(Sequence<0, 1, 2>{}),
+                make_tuple(make_merge_transform(make_tuple(1, M00, N0, M01_adapt))),
+                make_tuple(Sequence<0, 1, 2, 3>{}),
                 make_tuple(Sequence<0>{}));
 
         const auto cblockid_to_m0_n0_block_cluster_adaptor =
@@ -162,7 +203,6 @@ struct BlockToCTileMap_M00_N0_M01Adapt
         return cblockid_to_m0_n0_block_cluster_adaptor;
     }
 
-    index_t M01_;
     CGridDesc_M_N c_grid_desc_m_n_;
 };
 
