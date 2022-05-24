@@ -54,6 +54,61 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmLayerNorm_Xdl
         <     Row,     Col,     Row,  F16,   F16,   F16,      F32,      F32,       F32,   F32,  AElementOp,  BElementOp,  CElementOp, D0ReduceOp, D1ReduceOp, D1ElementOp, GemmSpecialization,        1,   256,   256,   128,    32,   8,   8,   32,   32,    4,    2,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,              8,              8,         1,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,             2,              8,              8,         1,           1,           1,               S<1, 32, 1, 8>,               8,             S<64, 4>,                         4,                            1>;
 // clang-format on
 
+// D = Layernorm(acc + broadcast(bias)) * broadcast(gamma) + broadcast(beta)
+template <typename InDataType, typename OutDataType>
+void Layernorm(Tensor<OutDataType>& result,
+               const Tensor<InDataType>& acc,   // MxN
+               const Tensor<InDataType>& bias,  // 1xN
+               const Tensor<InDataType>& gamma, // 1xN
+               const Tensor<InDataType>& beta,  // 1xN
+               const InDataType epsilon = 1e-5)
+{
+    assert(acc.mDesc.GetLengths()[1] == bias.mDesc.GetLengths()[0] &&
+           acc.mDesc.GetLengths()[1] == gamma.mDesc.GetLengths()[0] &&
+           acc.mDesc.GetLengths()[1] == beta.mDesc.GetLengths()[0]);
+
+    size_t M = acc.mDesc.GetLengths()[0];
+    size_t N = acc.mDesc.GetLengths()[1];
+
+    Tensor<InDataType> avg_acc_sq(HostTensorDescriptor(std::vector<size_t>({M})));
+    Tensor<InDataType> avg_acc(HostTensorDescriptor(std::vector<size_t>({M})));
+    Tensor<InDataType> acc_layernorm(acc.mDesc);
+
+    // add bias
+    acc_layernorm.ForEach([&](auto& self, auto idx) {
+        self(idx[0], idx[1]) = acc(idx[0], idx[1]) + bias(idx[1]);
+    });
+
+    // reduce N dim
+    for(size_t i = 0; i < M; i++)
+    {
+        InDataType sum_acc_sq = 0;
+        InDataType sum_acc    = 0;
+        for(size_t j = 0; j < N; j++)
+        {
+            sum_acc_sq += acc_layernorm(i, j) * acc_layernorm(i, j);
+            sum_acc += acc_layernorm(i, j);
+        }
+        avg_acc_sq(i) = sum_acc_sq / N;
+        avg_acc(i)    = sum_acc / N;
+    }
+
+    // normalize
+    acc_layernorm.ForEach([&](auto& self, auto idx) {
+        self(idx[0], idx[1]) =
+            (self(idx[0], idx[1]) - avg_acc(idx[1])) /
+            sqrt(avg_acc_sq(idx[1]) - avg_acc(idx[1]) * avg_acc(idx[1]) + epsilon);
+    });
+
+    // affine
+    acc_layernorm.ForEach([&](auto& self, auto idx) {
+        self(idx[0], idx[1]) = self(idx[0], idx[1]) * gamma(idx[1]) + beta(idx[1]);
+    });
+
+    // cast
+    result = acc_layernorm.template CopyAsType<OutDataType>();
+}
+
 using ReferenceGemmInstance = ck::tensor_operation::host::
     ReferenceGemm<ADataType, BDataType, CDataType, AElementOp, BElementOp, CElementOp>;
 
