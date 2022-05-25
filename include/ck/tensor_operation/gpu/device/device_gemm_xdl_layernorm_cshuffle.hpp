@@ -59,6 +59,9 @@ template <typename ALayout,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
+          typename CReduceThreadClusterLengths_MPerBlock_NPerBlock,
+          index_t CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
+          index_t CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
           LoopScheduler LoopSched = make_default_loop_scheduler()>
 struct DeviceGemmLayerNorm_Xdl_CShuffle
     : public BaseOperator
@@ -435,9 +438,9 @@ struct DeviceGemmLayerNorm_Xdl_CShuffle
         CShuffleNXdlPerWavePerShuffle,
         CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
         CShuffleBlockTransferScalarPerVector_NPerBlock,
-        // CReduceThreadClusterLengths_MPerBlock_NPerBlock,
-        // CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
-        // CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
+        CReduceThreadClusterLengths_MPerBlock_NPerBlock,
+        CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
+        CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
         LoopSched>;
 
     // Argument

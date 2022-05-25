@@ -129,9 +129,9 @@ template <typename FloatAB,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
-        //   typename CReduceThreadClusterLengths_MPerBlock_NPerBlock,
-        //   index_t CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
-        //   index_t CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
+          typename CReduceThreadClusterLengths_MPerBlock_NPerBlock,
+          index_t CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
+          index_t CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
           LoopScheduler LoopSched>
 struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 {
