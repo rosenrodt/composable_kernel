@@ -11,24 +11,30 @@
 
 namespace ck {
 
+// D = Layernorm(A * B + broadcast(bias)) * broadcast(gamma) + broadcast(beta)
 template <typename GridwiseGemm,
           typename FloatAB,
           typename FloatC,
+          typename FloatCShuffle,
           typename AElementwiseOperation,
           typename BElementwiseOperation,
           typename CElementwiseOperation,
           typename AGridDesc_AK0_M_AK1,
           typename BGridDesc_BK0_N_BK1,
           typename CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock,
+          typename C0GridDescriptor_NBlock_NPerBlock,
           typename Block2CTileMap,
           bool HasMainKBlockLoop>
 __global__ void
 #if CK_USE_LAUNCH_BOUNDS
     __launch_bounds__(CK_MAX_THREAD_PER_BLOCK, CK_MIN_BLOCK_PER_CU)
 #endif
-        kernel_gemm_xdl_cshuffle_v1(const FloatAB* __restrict__ p_a_grid,
+        kernel_gemm_layernorm_xdl_cshuffle_v1(const FloatAB* __restrict__ p_a_grid,
                                     const FloatAB* __restrict__ p_b_grid,
-                                    FloatC* __restrict__ p_c_grid,
+                                    FloatC* __restrict__ p_c_grid, // MxN
+                                    const FloatCShuffle* __restrict__ p_c0_bias_grid, // 1xN
+                                    const FloatCShuffle* __restrict__ p_c0_gamma_grid, // 1xN
+                                    const FloatCShuffle* __restrict__ p_c0_beta_grid, // 1xN
                                     const AElementwiseOperation a_element_op,
                                     const BElementwiseOperation b_element_op,
                                     const CElementwiseOperation c_element_op,
@@ -36,14 +42,20 @@ __global__ void
                                     const BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1,
                                     const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
                                         c_grid_desc_mblock_mperblock_nblock_nperblock,
+                                    const C0GridDescriptor_NBlock_NPerBlock
+                                        c0_grid_desc_nblock_nperblock,
                                     const Block2CTileMap block_2_ctile_map)
 {
 #if(!defined(__HIP_DEVICE_COMPILE__) || defined(__gfx908__) || defined(__gfx90a__))
     __shared__ char p_shared[GridwiseGemm::GetSharedMemoryNumberOfByte()];
 
+    // TODO ANT: separate into MMA + Epilogue
     GridwiseGemm::template Run<HasMainKBlockLoop>(p_a_grid,
                                                   p_b_grid,
                                                   p_c_grid,
+                                                  p_c0_bias_grid,
+                                                  p_c0_gamma_grid,
+                                                  p_c0_beta_grid,
                                                   p_shared,
                                                   a_element_op,
                                                   b_element_op,
@@ -51,17 +63,24 @@ __global__ void
                                                   a_grid_desc_ak0_m_ak1,
                                                   b_grid_desc_bk0_n_bk1,
                                                   c_grid_desc_mblock_mperblock_nblock_nperblock,
+                                                  c0_grid_desc_nblock_nperblock,
                                                   block_2_ctile_map);
+
+    // TODO ANT: Run layernorm epilogue here
 #else
     ignore = p_a_grid;
     ignore = p_b_grid;
     ignore = p_c_grid;
+    ignore = p_c0_bias_grid;
+    ignore = p_c0_gamma_grid;
+    ignore = p_c0_beta_grid;
     ignore = a_element_op;
     ignore = b_element_op;
     ignore = c_element_op;
     ignore = a_grid_desc_ak0_m_ak1;
     ignore = b_grid_desc_bk0_n_bk1;
     ignore = c_grid_desc_mblock_mperblock_nblock_nperblock;
+    ignore = c0_grid_desc_nblock_nperblock;
     ignore = block_2_ctile_map;
 #endif // end of if (defined(__gfx908__) || defined(__gfx90a__))
 }
@@ -70,6 +89,7 @@ template <typename FloatAB,
           typename FloatGemmAcc,
           typename FloatCShuffle,
           typename FloatC,
+          typename FloatReduceAcc,
           typename AElementwiseOperation,
           typename BElementwiseOperation,
           typename CElementwiseOperation,
@@ -77,6 +97,7 @@ template <typename FloatAB,
           typename AGridDesc_AK0_M_AK1,
           typename BGridDesc_BK0_N_BK1,
           typename CGridDesc_M_N,
+          typename C0GridDesc_N,
           index_t NumGemmKPrefetchStage,
           index_t BlockSize,
           index_t MPerBlock,
@@ -108,8 +129,11 @@ template <typename FloatAB,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
+        //   typename CReduceThreadClusterLengths_MPerBlock_NPerBlock,
+        //   index_t CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
+        //   index_t CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
           LoopScheduler LoopSched>
-struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
+struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 {
     static constexpr auto I0 = Number<0>{};
     static constexpr auto I1 = Number<1>{};
@@ -155,9 +179,9 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         constexpr auto c_shuffle_block_desc_mblock_mperblock_nblock_nperblock =
             make_naive_tensor_descriptor_packed(
                 make_tuple(I1,
-                           Number<CShuffleMXdlPerWavePerShuffle * MWave * MPerXdl>{},
+                           Number<CShuffleMXdlPerWavePerShuffle * MWave * MPerXdl>{}, // 1 * MWave * 32
                            I1,
-                           Number<CShuffleNXdlPerWavePerShuffle * NWave * NPerXdl>{}));
+                           Number<CShuffleNXdlPerWavePerShuffle * NWave * NPerXdl>{})); // 1 * NWave * 32
 
         return c_shuffle_block_desc_mblock_mperblock_nblock_nperblock;
     }
@@ -209,6 +233,18 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0))
             return false;
 
+        // in order to reduce N dim without elaborate sync across CUs in single kernel, one
+        // workgroup must span the entire N extent
+        if(math::integer_divide_ceil(N, NPerBlock) > 1)
+        {
+            return false;
+        }
+
+        // host-side checks: all waves in the workgroups combined must cover whole N extent in order
+        // to have efficient N-dim reduction
+        // TODO ANT:
+        //
+
         // check gridwise gemm pipeline
         const auto num_k_loop = K / KPerBlock;
 
@@ -239,8 +275,10 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
         return GridwiseGemmPipe::CalculateHasMainLoop(num_loop);
     }
 
+    // For C and C head-pruning descriptor
+    template <typename CGridDesc_M_N_>
     __host__ __device__ static constexpr auto
-    MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(const CGridDesc_M_N& c_grid_desc_m_n)
+    MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(const CGridDesc_M_N_& c_grid_desc_m_n)
     {
         const auto M = c_grid_desc_m_n.GetLength(I0);
         const auto N = c_grid_desc_m_n.GetLength(I1);
@@ -256,6 +294,23 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
             make_tuple(Sequence<0, 1>{}, Sequence<2, 3>{}));
 
         return c_grid_desc_mblock_mperblock_nblock_nperblock;
+    }
+
+    // for bias, beta, gamma
+    template <typename C0GridDesc_N_>
+    __host__ __device__ static constexpr auto
+    MakeC0GridDescriptor_NBlock_NPerBlock(const C0GridDesc_N_& c0_grid_desc_n)
+    {
+        const auto N      = c0_grid_desc_n.GetLength(I0);
+        const auto NBlock = N / NPerBlock;
+
+        const auto c0_grid_desc_nblock_nperblock = transform_tensor_descriptor(
+            c0_grid_desc_n,
+            make_tuple(make_unmerge_transform(make_tuple(NBlock, Number<NPerBlock>{}))),
+            make_tuple(Sequence<0>{}),
+            make_tuple(Sequence<0, 1>{}));
+
+        return c0_grid_desc_nblock_nperblock;
     }
 
     // return block_id to C matrix tile idx (m0, n0) mapping
@@ -301,6 +356,9 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
     using CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock = remove_cvref_t<decltype(
         MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(CGridDesc_M_N{}))>;
 
+    using C0GridDescriptor_NBlock_NPerBlock = remove_cvref_t<decltype(
+        MakeC0GridDescriptor_NBlock_NPerBlock(C0GridDesc_N{}))>;
+
     using DefaultBlock2CTileMap =
         remove_cvref_t<decltype(MakeDefaultBlock2CTileMap(CGridDesc_M_N{}))>;
 
@@ -308,6 +366,9 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
     __device__ static void Run(const FloatAB* __restrict__ p_a_grid,
                                const FloatAB* __restrict__ p_b_grid,
                                FloatC* __restrict__ p_c_grid,
+                               const FloatCShuffle* __restrict__ p_c0_bias_grid, // 1xN
+                               const FloatCShuffle* __restrict__ p_c0_gamma_grid, // 1xN
+                               const FloatCShuffle* __restrict__ p_c0_beta_grid, // 1xN
                                void* __restrict__ p_shared,
                                const AElementwiseOperation& a_element_op,
                                const BElementwiseOperation& b_element_op,
@@ -316,6 +377,8 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                const BGridDesc_BK0_N_BK1& b_grid_desc_bk0_n_bk1,
                                const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
                                    c_grid_desc_mblock_mperblock_nblock_nperblock,
+                               const C0GridDescriptor_NBlock_NPerBlock&
+                                   c0_grid_desc_nblock_nperblock,
                                const Block2CTileMap& block_2_ctile_map)
     {
         const auto a_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
@@ -324,6 +387,12 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
             p_b_grid, b_grid_desc_bk0_n_bk1.GetElementSpaceSize());
         auto c_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_c_grid, c_grid_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize());
+        auto c0_bias_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
+            p_c0_bias_grid, c0_grid_desc_nblock_nperblock.GetElementSpaceSize());
+        auto c0_gamma_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
+            p_c0_gamma_grid, c0_grid_desc_nblock_nperblock.GetElementSpaceSize());
+        auto c0_beta_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
+            p_c0_beta_grid, c0_grid_desc_nblock_nperblock.GetElementSpaceSize());
 
         // divide block work by [M, N]
         const auto block_work_idx =
@@ -609,6 +678,9 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                  make_multi_index(block_work_idx[I0], 0, block_work_idx[I1], 0),
                  c_element_op};
 
+            // Needs:
+            // 1D workspace LDS buffer for sum(x) and sum(x^2)
+            // 1D static_buffer
             // space filling curve for threadwise C in VGPR
             constexpr auto sfc_c_vgpr =
                 SpaceFillingCurve<Sequence<MXdlPerWave, NXdlPerWave, 1, 1, M2, 1, M4, 1>,
