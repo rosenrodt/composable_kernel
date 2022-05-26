@@ -259,14 +259,23 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
     __host__ __device__ static constexpr auto
     MakeDefaultBlock2CTileMap(const CGridDesc_M_N& c_grid_desc_m_n)
     {
-        return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock, NPerBlock, CGridDesc_M_N>(
-            c_grid_desc_m_n); // 113T -> 116T
-        // return BlockToCTileMap_M00_N0_M01<MPerBlock, NPerBlock, CGridDesc_M_N>(
+        // GemmMN 7680x8192 using MNPerBlock 256x128 is split into 30x64 tiles
+
+        // 6xN tile group
+        // return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock, NPerBlock, CGridDesc_M_N>(
         //     c_grid_desc_m_n, 6); // 113T -> 116T
+
+        // 8xN tile group
+        return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock, NPerBlock, CGridDesc_M_N>(
+            c_grid_desc_m_n, 8); // 113T -> 115-116T
+
+        // 6x8 tile group
         // return BlockToCTileMap_M00_N00_M01_N01<MPerBlock, NPerBlock, CGridDesc_M_N>(
         //     c_grid_desc_m_n, 6, 8); // 113T -> 115T
+
+        // 1x1 tile group (default)
         // return BlockToCTileMap_M00_N00_M01_N01<MPerBlock, NPerBlock, CGridDesc_M_N>(
-        //     c_grid_desc_m_n); // 113T
+        //     c_grid_desc_m_n); // 113-114T
     }
 
     using CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock = remove_cvref_t<decltype(
