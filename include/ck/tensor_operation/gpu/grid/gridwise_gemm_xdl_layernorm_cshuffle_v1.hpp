@@ -242,10 +242,9 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
             return false;
         }
 
-        // host-side checks: all waves in the workgroups combined must cover whole N extent in order
+        // static check: all waves in the workgroups combined must cover whole N extent in order
         // to have efficient N-dim reduction
-        // TODO ANT:
-        //
+        static_assert(CShuffleNXdlPerWavePerShuffle == NXdlPerWave, "condition not met for efficient layernorm");
 
         // check gridwise gemm pipeline
         const auto num_k_loop = K / KPerBlock;
