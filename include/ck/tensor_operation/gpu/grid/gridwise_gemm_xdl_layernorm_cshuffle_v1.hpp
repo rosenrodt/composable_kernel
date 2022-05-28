@@ -10,6 +10,7 @@
 #include "gridwise_gemm_pipeline_v1.hpp"
 #include "reduction_functions_threadwise.hpp"
 #include "reduction_functions_blockwise.hpp"
+#include "element_wise_operation.hpp"
 
 namespace ck {
 
@@ -409,6 +410,16 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
             p_c0_gamma_grid, c0_grid_desc_nblock_nperblock.GetElementSpaceSize());
         auto c0_beta_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_c0_beta_grid, c0_grid_desc_nblock_nperblock.GetElementSpaceSize());
+
+        // if (hipThreadIdx_x == 0 && hipBlockIdx_x == 0) c_grid_desc_mblock_mperblock_nblock_nperblock.Print();
+        /*
+        {TensorDescriptor,
+            transforms: {Embed, up_lengths_ {MultiIndex, size 2,256 128 }coefficients_ {MultiIndex, size 2,128 1 }}LowerDimensionIds:{size 1, 0 }UpperDimensionIds:{size 2, 1 2 }
+            transforms: {UnMerge, up_lengths_{MultiIndex, size 2,1 256 }up_lengths_scan_{MultiIndex, size 2,256 1 }}LowerDimensionIds:{size 1, 1 }UpperDimensionIds:{size 2, 3 4 }
+            transforms: {UnMerge, up_lengths_{MultiIndex, size 2,1 128 }up_lengths_scan_{MultiIndex, size 2,128 1 }}LowerDimensionIds:{size 1, 2 }UpperDimensionIds:{size 2, 5 6 }
+        }
+        {size 4, 3 4 5 6 }
+        */
 
         // divide block work by [M, N]
         const auto block_work_idx =
@@ -820,6 +831,20 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 1,
                 true>{c_reduce_block_desc_mperblock_nperblock, c_reduce_thread_data_idx_begin};
 
+            auto c_reduce_thread_copy_vgpr_to_lds = ThreadwiseTensorSliceTransfer_v1r3<
+                FloatReduceAcc,
+                FloatCShuffle,
+                decltype(c_reduce_thread_desc_mperblock_nperblock),
+                decltype(c_reduce_block_desc_mperblock_nperblock),
+                tensor_operation::element_wise::PassThrough,
+                decltype(c_reduce_thread_lengths_mperblock_nperblock),
+                Sequence<0, 1>,
+                1,
+                CReduceThreadLds2VGprCopySrcDstScalarPerVector_NPerBlock,
+                InMemoryDataOperationEnum::Set,
+                1,
+                true>{c_reduce_block_desc_mperblock_nperblock, c_reduce_thread_data_idx_begin, tensor_operation::element_wise::PassThrough{}};
+
             auto c0_thread_copy_global_to_vgpr = ThreadwiseTensorSliceTransfer_v2<
                 FloatCShuffle,
                 FloatReduceAcc,
@@ -877,6 +902,8 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 // make sure it's safe to read from LDS
                 block_sync_lds();
 
+                // layernorm
+                {
                 // load from LDS and global, add bias
                 c_reduce_thread_copy_lds_to_vgpr.Run(c_reduce_block_desc_mperblock_nperblock,
                                                      c_shuffle_block_buf,
@@ -943,12 +970,20 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                                                       reduce::Add<FloatReduceAcc>,
                                                                       false>;
 
-                static_for<0, mreduce_per_thread, 1>{}([&](auto I) {
-                    BlockwiseReduce::Reduce(d_reduce_work_buf, d0_thread_buf[I]); // blockwise reduced sum
-                    BlockwiseReduce::Reduce(d_reduce_work_buf, d1_thread_buf[I]); // blockwise reduced squared sum
+                static_for<0, mreduce_per_thread, 1>{}([&](auto i) {
+                    BlockwiseReduce::Reduce(d_reduce_work_buf, d0_thread_buf(i)); // blockwise reduced sum
+                    BlockwiseReduce::Reduce(d_reduce_work_buf, d1_thread_buf(i)); // blockwise reduced squared sum
+                    // printf("tid %zd, access_id %d, mreduce_idx %d, sum = %f, sq sum = %f\n",
+                    //        hipThreadIdx_x,
+                    //        access_id.value,
+                    //        i.value,
+                    //        d0_thread_buf(i),
+                    //        d1_thread_buf(i));
                 });
 
                 // normalize
+                const index_t NRaw = c_grid_desc_mblock_mperblock_nblock_nperblock.GetTransforms()[I0].GetUpperLengths()[I1]; // TODO: proper handle
+                // if(hipThreadIdx_x == 0) printf("NRaw = %d\n", NRaw);
                 static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
                     static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
                         constexpr auto dst_offset =
@@ -957,14 +992,38 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 
                         constexpr auto src_offset =
                             Number<d_reduce_thread_desc_mperblock.CalculateOffset(
-                                make_tuple(im)>{};
+                                make_tuple(im))>{};
 
-                        FloatReduceAcc denom = c_reduce_thread_buf(dst_offset) - d0_thread_buf(src_offset);
-                        FloatReduceAcc divisor = d1_thread_buf(src_offset) - d0_thread_buf(src_offset) * d0_thread_buf(src_offset) + epsilon;
-                        UnarySqrt<FloatReduceAcc, FloatReduceAcc>{}(divisor, divisor);
-                        c_reduce_thread_buf(dst_offset) = denom / devisor;
+                        FloatReduceAcc avg_sum = d0_thread_buf(src_offset) / NRaw;
+                        FloatReduceAcc avg_squared_sum = d1_thread_buf(src_offset) / NRaw;
+
+                        FloatReduceAcc denom = c_reduce_thread_buf(dst_offset) - avg_sum;
+                        FloatReduceAcc divisor = epsilon + avg_squared_sum - avg_sum * avg_sum;
+                        FloatReduceAcc divisor_sqrt;
+                        tensor_operation::element_wise::UnarySqrt<FloatReduceAcc, FloatReduceAcc>{}(divisor_sqrt, divisor);
+
+                        c_reduce_thread_buf(dst_offset) = denom / divisor_sqrt;
+                        // printf("tid %zd, access_id %d, reduce_idx %d %d, avg_sum = %f, avg sq sum = %f, final = %f\n",
+                        //        hipThreadIdx_x,
+                        //        access_id.value,
+                        //        im.value,
+                        //        in.value,
+                        //        avg_sum,
+                        //        avg_squared_sum,
+                        //        c_reduce_thread_buf(dst_offset));
                     });
                 });
+
+                block_sync_lds();
+
+                c_reduce_thread_copy_vgpr_to_lds.Run(c_reduce_thread_desc_mperblock_nperblock,
+                                                     make_tuple(I0, I0),
+                                                     c_reduce_thread_buf,
+                                                     c_reduce_block_desc_mperblock_nperblock,
+                                                     c_shuffle_block_buf);
+
+                } // end layernorm
+                // debug::print_shared(c_shuffle_block_buf.p_data_, c_shuffle_block_buf.element_space_size_);
 
                 // each block copy its data from LDS to global
                 c_shuffle_block_copy_lds_to_global.Run(
