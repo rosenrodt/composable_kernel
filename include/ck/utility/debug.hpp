@@ -9,7 +9,7 @@ template <typename T, typename Enable = void>
 struct PrintAsType;
 
 template <typename T>
-struct PrintAsType<T, typename std::enable_if<std::is_floating_point<T>::value>::value>
+struct PrintAsType<T, typename std::enable_if<std::is_floating_point<T>::value>::type>
 {
     using type = float;
 };
@@ -21,7 +21,7 @@ struct PrintAsType<ck::half_t, void>
 };
 
 template <typename T>
-struct PrintAsType<T, typename std::enable_if<std::is_integral<T>::value>::value>
+struct PrintAsType<T, typename std::enable_if<std::is_integral<T>::value>::type>
 {
     using type = int;
 };
