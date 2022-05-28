@@ -94,8 +94,8 @@ void Layernorm(Tensor<OutDataType>& result,
     // normalize
     acc_layernorm.ForEach([&](auto& self, auto idx) {
         self(idx[0], idx[1]) =
-            (self(idx[0], idx[1]) - avg_acc(idx[1])) /
-            sqrt(avg_acc_sq(idx[1]) - avg_acc(idx[1]) * avg_acc(idx[1]) + epsilon);
+            (self(idx[0], idx[1]) - avg_acc(idx[0])) /
+            sqrt(avg_acc_sq(idx[0]) - avg_acc(idx[0]) * avg_acc(idx[0]) + epsilon);
     });
 
     // affine
