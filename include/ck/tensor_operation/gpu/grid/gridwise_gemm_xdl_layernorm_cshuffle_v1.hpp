@@ -8,6 +8,8 @@
 #include "thread_group_tensor_slice_transfer_v6r1.hpp"
 #include "threadwise_tensor_slice_transfer.hpp"
 #include "gridwise_gemm_pipeline_v1.hpp"
+#include "reduction_functions_threadwise.hpp"
+#include "reduction_functions_blockwise.hpp"
 
 namespace ck {
 
@@ -293,6 +295,24 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 
         return c_grid_desc_mblock_mperblock_nblock_nperblock;
     }
+
+    // for broadcasting bias, beta, gamma
+    // __host__ __device__ static constexpr auto
+    // MakeC0GridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(const C0GridDescriptor_NBlock_NPerBlock& c0_grid_desc_nblock_nperblock)
+    // {
+    //     const auto NBlock = c0_grid_desc_nblock_nperblock.GetLength(I0);
+
+    //     const auto c0_grid_desc_mblock_mperblock_nblock_nperblock = transform_tensor_descriptor(
+    //         c0_grid_desc_nblock_nperblock,
+    //         make_tuple(make_insert_transform(I1),
+    //                    make_insert_transform(I1),
+    //                    make_pass_through_transform(NBlock),
+    //                    make_pass_through_transform(NPerBlock)),
+    //         make_tuple(Sequence<>{}, Sequence<>{}, Sequence<0>{}, Sequence<1>{}),
+    //         make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3>{}));
+
+    //     return c0_grid_desc_mblock_mperblock_nblock_nperblock;
+    // }
 
     // for bias, beta, gamma
     __host__ __device__ static constexpr auto
@@ -739,7 +759,7 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 
             // pytorch default
             // https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
-            static constexpr float eps = 1e-5;
+            static constexpr FloatReduceAcc epsilon = 1e-5;
 
             // VGPR c_reduce_thread_desc_mperblock_nperblock
             constexpr auto c_reduce_thread_desc_mperblock_nperblock =
@@ -766,9 +786,9 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 
             // TODO ANT: incorporate in singly defined p_shared. calculate proper total size in
             // GetSharedMemoryNumberOfByte() and shift pointer as approriate
-            __shared__ FloatReduceAcc p_c_reduce_work_buffer[MPerBlock];
-            auto c_reduce_work_buf =
-                make_dynamic_buffer<AddressSpaceEnum::Lds>(p_c_reduce_work_buffer, MPerBlock);
+            __shared__ FloatReduceAcc p_d_reduce_work_buffer[BlockSize];
+            auto d_reduce_work_buf =
+                make_dynamic_buffer<AddressSpaceEnum::Lds>(p_d_reduce_work_buffer, BlockSize);
 
             // Sum thread workspace
             auto d0_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatReduceAcc>(
@@ -865,6 +885,7 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                                      make_tuple(I0, I0),
                                                      c_reduce_thread_buf);
 
+
                 c0_thread_copy_global_to_vgpr.Run(
                     c0_grid_desc_mblock_mperblock_nblock_nperblock,
                     c0_bias_grid_buf,
@@ -886,6 +907,70 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                         //        in.value,
                         //        c0_thread_buf(offset),
                         //        c_reduce_thread_buf(offset));
+                    });
+                });
+
+                using ReduceOperation = reduce::Add<FloatReduceAcc>;
+                using ThreadwiseReduce =
+                    ThreadwiseReduction<FloatReduceAcc,
+                                        decltype(c_reduce_thread_desc_mperblock_nperblock),
+                                        decltype(d_reduce_thread_desc_mperblock),
+                                        ReduceOperation,
+                                        false>;
+
+                const auto d0_zeroVal = ReduceOperation::GetReductionZeroVal();
+                const auto d1_zeroVal = ReduceOperation::GetReductionZeroVal();
+                static_for<0, mreduce_per_thread, 1>{}(
+                    [&](auto I) { d0_thread_buf(I) = d0_zeroVal; });
+                static_for<0, mreduce_per_thread, 1>{}(
+                    [&](auto I) { d1_thread_buf(I) = d1_zeroVal; });
+
+
+                // reduce sum in VGPR
+                ThreadwiseReduce::Reduce(c_reduce_thread_buf, d0_thread_buf);
+
+                // squared sum
+                static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
+                    static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
+                        constexpr auto offset =
+                            Number<c_reduce_thread_desc_mperblock_nperblock.CalculateOffset(
+                                make_tuple(im, in))>{};
+
+                        c_reduce_thread_buf(offset) *= c_reduce_thread_buf(offset);
+                    });
+                });
+
+                // reduce squared sum in VGPR
+                ThreadwiseReduce::Reduce(c_reduce_thread_buf, d1_thread_buf);
+
+                // reduce across workgorup
+                using BlockwiseReduce = PartitionedBlockwiseReduction<FloatReduceAcc,
+                                                                      BlockSize,
+                                                                      CReduceThreadClusterLengths_MPerBlock_NPerBlock, // ThreadClusterLengths_M_K
+                                                                      Sequence<1, 0>, // ThreadClusterArrangeOrder
+                                                                      ReduceOperation,
+                                                                      false>;
+
+                static_for<0, mreduce_per_thread, 1>{}([&](auto I) {
+                    BlockwiseReduce::Reduce(d_reduce_work_buf, d0_thread_buf[I]); // blockwise reduced sum
+                    BlockwiseReduce::Reduce(d_reduce_work_buf, d1_thread_buf[I]); // blockwise reduced squared sum
+                });
+
+                // normalize
+                static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
+                    static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
+                        constexpr auto dst_offset =
+                            Number<c_reduce_thread_desc_mperblock_nperblock.CalculateOffset(
+                                make_tuple(im, in))>{};
+
+                        constexpr auto src_offset =
+                            Number<d_reduce_thread_desc_mperblock.CalculateOffset(
+                                make_tuple(im)>{};
+
+                        FloatReduceAcc denom = c_reduce_thread_buf(dst_offset) - d0_thread_buf(src_offset);
+                        FloatReduceAcc divisor = d1_thread_buf(src_offset) - d0_thread_buf(src_offset) * d0_thread_buf(src_offset) + epsilon;
+                        UnarySqrt<FloatReduceAcc, FloatReduceAcc>{}(divisor, divisor);
+                        c_reduce_thread_buf(dst_offset) = denom / devisor;
                     });
                 });
 
