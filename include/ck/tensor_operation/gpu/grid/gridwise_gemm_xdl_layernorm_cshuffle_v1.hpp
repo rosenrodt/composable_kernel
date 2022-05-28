@@ -910,45 +910,38 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                     });
                 });
 
-                using ReduceOperation = reduce::Add<FloatReduceAcc>;
-                using ThreadwiseReduce =
+                using ThreadwiseReduceD0 =
                     ThreadwiseReduction<FloatReduceAcc,
                                         decltype(c_reduce_thread_desc_mperblock_nperblock),
                                         decltype(d_reduce_thread_desc_mperblock),
-                                        ReduceOperation,
+                                        reduce::Add<FloatReduceAcc>,
+                                        false>;
+                using ThreadwiseReduceD1 =
+                    ThreadwiseReduction<FloatReduceAcc,
+                                        decltype(c_reduce_thread_desc_mperblock_nperblock),
+                                        decltype(d_reduce_thread_desc_mperblock),
+                                        reduce::SquaredAdd<FloatReduceAcc>,
                                         false>;
 
-                const auto d0_zeroVal = ReduceOperation::GetReductionZeroVal();
-                const auto d1_zeroVal = ReduceOperation::GetReductionZeroVal();
+                const auto d0_zeroVal = ThreadwiseReduceD0::Op::GetReductionZeroVal();
+                const auto d1_zeroVal = ThreadwiseReduceD1::Op::GetReductionZeroVal();
                 static_for<0, mreduce_per_thread, 1>{}(
-                    [&](auto I) { d0_thread_buf(I) = d0_zeroVal; });
+                    [&](auto i) { d0_thread_buf(i) = d0_zeroVal; });
                 static_for<0, mreduce_per_thread, 1>{}(
-                    [&](auto I) { d1_thread_buf(I) = d1_zeroVal; });
-
+                    [&](auto i) { d1_thread_buf(i) = d1_zeroVal; });
 
                 // reduce sum in VGPR
-                ThreadwiseReduce::Reduce(c_reduce_thread_buf, d0_thread_buf);
-
-                // squared sum
-                static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
-                    static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
-                        constexpr auto offset =
-                            Number<c_reduce_thread_desc_mperblock_nperblock.CalculateOffset(
-                                make_tuple(im, in))>{};
-
-                        c_reduce_thread_buf(offset) *= c_reduce_thread_buf(offset);
-                    });
-                });
+                ThreadwiseReduceD0::Reduce(c_reduce_thread_buf, d0_thread_buf);
 
                 // reduce squared sum in VGPR
-                ThreadwiseReduce::Reduce(c_reduce_thread_buf, d1_thread_buf);
+                ThreadwiseReduceD1::Reduce(c_reduce_thread_buf, d1_thread_buf);
 
                 // reduce across workgorup
                 using BlockwiseReduce = PartitionedBlockwiseReduction<FloatReduceAcc,
                                                                       BlockSize,
                                                                       CReduceThreadClusterLengths_MPerBlock_NPerBlock, // ThreadClusterLengths_M_K
                                                                       Sequence<1, 0>, // ThreadClusterArrangeOrder
-                                                                      ReduceOperation,
+                                                                      reduce::Add<FloatReduceAcc>,
                                                                       false>;
 
                 static_for<0, mreduce_per_thread, 1>{}([&](auto I) {
