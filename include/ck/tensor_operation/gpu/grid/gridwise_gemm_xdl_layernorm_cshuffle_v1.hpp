@@ -1062,7 +1062,7 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                                      c_shuffle_block_buf);
 
                 } // end layernorm
-                // debug::print_shared(c_shuffle_block_buf.p_data_, c_shuffle_block_buf.element_space_size_);
+                block_sync_lds();
 
                 // each block copy its data from LDS to global
                 c_shuffle_block_copy_lds_to_global.Run(
