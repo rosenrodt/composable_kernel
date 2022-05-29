@@ -70,6 +70,7 @@ struct PartitionedBlockwiseReduction
         static_assert(is_same<typename BufferType::type, AccDataType>{},
                       "Buffer data type should be consistent as AccDataType!");
 
+        // get_shift<4>() = get_shift<2>() + 1 = get_shift<1> + 1 + 1 = 0 + 1 + 1 = 2
         constexpr auto cluster_len_shift = get_shift<BufferLength_K>();
 
         const auto thread_cluster_idx =
@@ -82,6 +83,8 @@ struct PartitionedBlockwiseReduction
 
         __syncthreads();
 
+        // I = 0, 1, 2, (3 end)
+        // indOffset = (1 << 2), (1 << 1), (1 << 0) = 4, 2, 1
         static_for<0, cluster_len_shift, 1>{}([&](auto I) {
             constexpr index_t indOffset = 1 << (cluster_len_shift - 1 - I());
 

@@ -1,3 +1,5 @@
+#define DEBUG
+
 #include <iostream>
 #include <numeric>
 #include <initializer_list>
@@ -41,7 +43,7 @@ using BElementOp  = ck::tensor_operation::element_wise::PassThrough;
 using CElementOp  = ck::tensor_operation::element_wise::PassThrough;
 
 static constexpr auto GemmSpecialization =
-    ck::tensor_operation::device::GemmSpecialization::Default;
+    ck::tensor_operation::device::GemmSpecialization::KPadding;
 
 // clang-format off
 using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmLayerNorm_Xdl_CShuffle
@@ -89,6 +91,8 @@ void Layernorm(Tensor<OutDataType>& result,
         }
         avg_acc_sq(i) = sum_acc_sq / N;
         avg_acc(i)    = sum_acc / N;
+        // std::cout << "avg_acc_(" << i << ") =" << avg_acc(i) << std::endl;
+        // std::cout << "avg_acc_sq_(" << i << ") =" << avg_acc_sq(i) << std::endl;
     }
 
     // normalize
@@ -107,16 +111,35 @@ void Layernorm(Tensor<OutDataType>& result,
     result = acc_layernorm.template CopyAsType<OutDataType>();
 }
 
+/*
+// gemm + layernorm
+for i in num_access:
+  // add bias in vgpr
+
+
+  // reduce N dim
+  c_thread_copy_vgpr_to_lds
+  {
+    c_reduce_thread_copy_lds_to_vgpr
+    ThreadwiseReduce::Reduce()
+    BlockwiseReduce::Reduce()
+    c_shuffle_block_copy_lds_to_global
+  }
+  // normalize
+  // affine
+*/
+
 using ReferenceGemmInstance = ck::tensor_operation::host::
     ReferenceGemm<ADataType, BDataType, AccDataType, AElementOp, BElementOp, CElementOp>;
 
 int main(int argc, char* argv[])
 {
     bool do_verification = true;
-    int init_method      = 1;
+    int init_method      = 0;
     bool time_kernel     = false;
 
     // GEMM shape
+#if !defined(DEBUG)
     ck::index_t M = 3840;
     ck::index_t N = 4096;
     ck::index_t K = 4096;
@@ -124,6 +147,15 @@ int main(int argc, char* argv[])
     ck::index_t StrideA = 4096;
     ck::index_t StrideB = 4096;
     ck::index_t StrideC = 4096;
+#else
+    ck::index_t M = 256;
+    ck::index_t N = 128;
+    ck::index_t K = 32;
+
+    ck::index_t StrideA = 32;
+    ck::index_t StrideB = 32;
+    ck::index_t StrideC = 128;
+#endif
 
     if(argc == 1)
     {
@@ -192,18 +224,31 @@ int main(int argc, char* argv[])
     {
     case 0: break;
     case 1:
-        a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
-        b_k_n.GenerateTensorValue(GeneratorTensor_1<BDataType>{1});
-        break;
-    case 2:
         a_m_k.GenerateTensorValue(GeneratorTensor_2<ADataType>{-5, 5});
         b_k_n.GenerateTensorValue(GeneratorTensor_2<BDataType>{-5, 5});
+        break;
+    case 2:
+        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        b_k_n.GenerateTensorValue(GeneratorTensor_1<BDataType>{1});
+        break;
+    case 3:
+        a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
+        b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
+        break;
+    case 4:
+        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        b_k_n.GenerateTensorValue(GeneratorTensor_1<BDataType>{-1});
+        break;
+    case 5: // TODO ANT: FIXME
+        a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{-1});
+        b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
         break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_3<ADataType>{0.0, 1.0});
         b_k_n.GenerateTensorValue(GeneratorTensor_3<BDataType>{-0.5, 0.5});
         break;
     }
+     // TODO ANT: test other init
     c_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<CDataType>{0});
     acc_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<AccDataType>{0});
     c0_n_bias.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
@@ -227,6 +272,14 @@ int main(int argc, char* argv[])
     auto b_element_op  = BElementOp{};
     auto c_element_op  = CElementOp{};
 
+#if defined(DEBUG)
+    // Tensor<AccDataType> acc_m_n_host_result(f_host_tensor_descriptor(M, N, StrideC, CLayout{}));
+    // acc_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<AccDataType>{0});
+    // Tensor<F16> ret(acc_m_n_host_result.mDesc);
+    // ret.GenerateTensorValue(GeneratorTensor_0<F16>{});
+    // Layernorm(ret, acc_m_n_host_result, c0_n_bias, c0_n_gamma, c0_n_beta);
+    // LogRangeAsType<F32>(std::cout << "ret: ", ret.mData, ",");
+#endif
     // do GEMM
     auto gemm     = DeviceGemmInstance{};
     auto invoker  = gemm.MakeInvoker();
@@ -284,6 +337,13 @@ int main(int argc, char* argv[])
         pass &= ck::utils::check_err(
             c_m_n_device_result.mData, c_m_n_host_result.mData, "Error: Incorrect results c");
 
+        // if (!pass)
+        // {
+        //     LogRangeAsType<float>(std::cout << "c_host: ", c_m_n_host_result.mData, ",")
+        //                 << std::endl;
+        //     LogRangeAsType<float>(std::cout << "c_device: ", c_m_n_device_result.mData, ",")
+        //                 << std::endl;
+        // }
     }
     return pass ? 0 : 1;
 }

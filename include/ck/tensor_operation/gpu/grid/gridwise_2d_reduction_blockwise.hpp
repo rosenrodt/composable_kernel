@@ -281,6 +281,7 @@ struct GridwiseReduction_mk_to_m_blockwise
 
         const index_t toReduceTiles = (toReduceLength + K_BlockTileSize - 1) / K_BlockTileSize;
 
+        // NOTE ANT: threadwise unary op + reduction
         index_t reducedTiles = 0;
         do
         {
@@ -308,9 +309,11 @@ struct GridwiseReduction_mk_to_m_blockwise
 
         constexpr auto reduced_data_desc = ThreadReduceDstDesc_M{};
 
+        // NOTE ANT: blockwise reduction in LDS
         static_for<0, MThreadSliceSize, 1>{}(
             [&](auto I) { BlockwiseReduce::Reduce(reduce_work_buf, accu_value_buf(I)); });
 
+        // another element-wise op on accumulated result
         static_for<0, MThreadSliceSize, 1>{}([&](auto I) {
             if(thread_k_cluster_id == 0)
             {
@@ -320,6 +323,7 @@ struct GridwiseReduction_mk_to_m_blockwise
             }
         });
 
+        // write back
         if(thread_k_cluster_id == 0)
         {
             if constexpr(!BetaIsZero)

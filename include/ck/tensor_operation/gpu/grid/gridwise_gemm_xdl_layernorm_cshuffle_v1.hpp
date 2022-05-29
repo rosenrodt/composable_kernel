@@ -792,7 +792,8 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
             auto c_reduce_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatReduceAcc>(
                 c_reduce_thread_desc_mperblock_nperblock.GetElementSpaceSize());
 
-            auto c0_thread_buf = c_reduce_thread_buf;
+            auto c0_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatReduceAcc>(
+                c_reduce_thread_desc_mperblock_nperblock.GetElementSpaceSize());
 
             // TODO ANT: incorporate in singly defined p_shared. calculate proper total size in
             // GetSharedMemoryNumberOfByte() and shift pointer as approriate
@@ -890,6 +891,7 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
 
             static_for<0, num_access, 1>{}([&](auto access_id) {
                 // make sure it's safe to write to LDS
+                // __syncthreads();
                 block_sync_lds();
 
                 // each thread write its data from VGPR to LDS
@@ -900,6 +902,8 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                               c_shuffle_block_buf);
 
                 // make sure it's safe to read from LDS
+                // debug::print_shared(c_shuffle_block_buf.p_data_, c_shuffle_block_buf.element_space_size_);
+                // __syncthreads();
                 block_sync_lds();
 
                 // layernorm
@@ -1062,7 +1066,10 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                                      c_shuffle_block_buf);
 
                 } // end layernorm
+
+                // __syncthreads();
                 block_sync_lds();
+                // debug::print_shared<32>(c_shuffle_block_buf.p_data_, c_shuffle_block_buf.element_space_size_);
 
                 // each block copy its data from LDS to global
                 c_shuffle_block_copy_lds_to_global.Run(

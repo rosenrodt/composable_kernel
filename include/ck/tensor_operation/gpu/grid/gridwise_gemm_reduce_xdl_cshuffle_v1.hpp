@@ -533,8 +533,8 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                               NXdlPerWave % CShuffleNXdlPerWavePerShuffle == 0,
                           "wrong!");
 
-            constexpr index_t MWave = MPerBlock / (MXdlPerWave * MPerXdl);
-            constexpr index_t NWave = NPerBlock / (NXdlPerWave * NPerXdl);
+            constexpr index_t MWave = MPerBlock / (MXdlPerWave * MPerXdl); // 256 / (4*32) = 2
+            constexpr index_t NWave = NPerBlock / (NXdlPerWave * NPerXdl); // 128 / (2*32) = 2
 
             // TODO: hacky, fix it!
             constexpr auto c_thread_desc_m0_n0_m1_n1_m2_m3_m4_n2 =
@@ -561,6 +561,8 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 static_cast<FloatCShuffle*>(p_shared),
                 c_shuffle_block_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize());
 
+            // NOTE ANT: why use freeze transform? because it needs a workaround for threadwise copy
+            // v1r3, where it cannot control src slice and dst slice individually at each iteration
             constexpr auto c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2 = transform_tensor_descriptor(
                 c_shuffle_block_desc_mblock_mperblock_nblock_nperblock,
                 make_tuple(
@@ -684,10 +686,10 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                               BlockSize,
                           "wrong!");
 
-            static_assert((CShuffleMXdlPerWavePerShuffle * MWave * MPerXdl) %
+            static_assert((CShuffleMXdlPerWavePerShuffle * MWave * MPerXdl) % // 1 * 2 * 32 = 64
                                       CReduceThreadClusterLengths_MPerBlock_NPerBlock::At(I0) ==
                                   0 &&
-                              (CShuffleNXdlPerWavePerShuffle * NWave * NPerXdl) %
+                              (CShuffleNXdlPerWavePerShuffle * NWave * NPerXdl) % // 1 * 2 * 32 = 64
                                       CReduceThreadClusterLengths_MPerBlock_NPerBlock::At(I1) ==
                                   0,
                           "wrong!");
@@ -727,7 +729,7 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 d_reduce_thread_desc_mperblock.GetElementSpaceSize());
 
             // reduce: threadwise copy from LDS to VGPR
-            constexpr auto c_reduce_thread_cluster_desc = make_cluster_descriptor(
+            constexpr auto c_reduce_thread_cluster_desc = make_cluster_descriptor( // NOTE ANT: n-dim first
                 CReduceThreadClusterLengths_MPerBlock_NPerBlock{}, Sequence<1, 0>{});
 
             const auto c_reduce_thread_cluster_idx =
@@ -760,7 +762,7 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 Sequence<0, 1>,
                 1,
                 CReduceThreadVgpr2GlobalCopySrcDstScalarPerVector_MPerBlock,
-                DGlobalMemoryDataOperation,
+                DGlobalMemoryDataOperation, // atomic_add
                 1,
                 false>{d_grid_desc_mblock_mperblock,
                        make_multi_index(block_work_idx[I0],                  // mblock
@@ -865,7 +867,7 @@ struct GridwiseGemmReduce_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                     // copy from VGPR to Global
                     d0_reduce_thread_copy_vgpr_to_global.Run(d_reduce_thread_desc_mblock_mperblock,
                                                              make_tuple(I0, I0),
-                                                             d0_thread_buf,
+                                                             d0_thread_buf, // NOTE ANT: static buffer
                                                              d_grid_desc_mblock_mperblock,
                                                              d0_grid_buf);
 

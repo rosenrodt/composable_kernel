@@ -729,7 +729,7 @@ struct XdlopsGemm
 
     __device__ static CIndex GetBeginOfThreadBlk(index_t xdlops_i, index_t blk_i)
     {
-        const auto blk_idx = GetBlkIdx();
+        const auto blk_idx = GetBlkIdx(); // 64 -> 2D idx (2, 32)
 
         const auto blk_id = blk_idx[I0];
         const auto blk_td = blk_idx[I1];

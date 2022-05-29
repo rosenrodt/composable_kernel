@@ -85,14 +85,14 @@ set(HALF_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/include/half")
 message("HALF_INCLUDE_DIR: ${HALF_INCLUDE_DIR}")
 
 ## tidy
-include(EnableCompilerWarnings)
-set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
-if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
-    set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
-# Enable tidy on hip
-elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
-    set(CK_TIDY_ERRORS ALL)
-endif()
+# include(EnableCompilerWarnings)
+# set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
+# if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
+#     set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
+# # Enable tidy on hip
+# elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
+#     set(CK_TIDY_ERRORS ALL)
+# endif()
 
 
 include(ClangTidy)
@@ -194,36 +194,36 @@ enable_clang_tidy(
         -DCK_USE_CLANG_TIDY
 )
 
-include(CppCheck)
-enable_cppcheck(
-    CHECKS
-        warning
-        style
-        performance
-        portability
-    SUPPRESS
-        ConfigurationNotChecked
-        constStatement
-        duplicateCondition
-        noExplicitConstructor
-        passedByValue
-        preprocessorErrorDirective
-        shadowVariable
-        unusedFunction
-        unusedPrivateFunction
-        unusedStructMember
-        unmatchedSuppression
-    FORCE
-    SOURCES
-        library/src
-    INCLUDE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_BINARY_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/library/include
-    DEFINE
-        CPPCHECK=1
-        __linux__=1
-)
+# include(CppCheck)
+# enable_cppcheck(
+#     CHECKS
+#         warning
+#         style
+#         performance
+#         portability
+#     SUPPRESS
+#         ConfigurationNotChecked
+#         constStatement
+#         duplicateCondition
+#         noExplicitConstructor
+#         passedByValue
+#         preprocessorErrorDirective
+#         shadowVariable
+#         unusedFunction
+#         unusedPrivateFunction
+#         unusedStructMember
+#         unmatchedSuppression
+#     FORCE
+#     SOURCES
+#         library/src
+#     INCLUDE
+#         ${CMAKE_CURRENT_SOURCE_DIR}/include
+#         ${CMAKE_CURRENT_BINARY_DIR}/include
+#         ${CMAKE_CURRENT_SOURCE_DIR}/library/include
+#     DEFINE
+#         CPPCHECK=1
+#         __linux__=1
+# )
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
@@ -239,10 +239,11 @@ include_directories(BEFORE
 
 
 SET(BUILD_DEV ON CACHE BOOL "BUILD_DEV")
-if(BUILD_DEV)
-    add_compile_options(-Werror)
-    add_compile_options(-Weverything)
-endif()
+add_compile_options(-Wunused-value)
+# if(BUILD_DEV)
+#     add_compile_options(-Werror)
+#     add_compile_options(-Weverything)
+# endif()
 message("CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -C ${CMAKE_CFG_INTDIR})
