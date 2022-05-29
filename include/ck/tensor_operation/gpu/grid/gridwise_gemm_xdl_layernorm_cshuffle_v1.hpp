@@ -919,22 +919,35 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                     make_tuple(I0, I0, I0, I0),
                     c0_thread_buf);
 
-                static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
-                    static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
-                        constexpr auto offset =
-                            Number<c_reduce_thread_desc_mperblock_nperblock.CalculateOffset(
-                                make_tuple(im, in))>{};
-
-                        c_reduce_thread_buf(offset) += c0_thread_buf(offset);
-                        // printf("tid %zd, access_id %d, im, in %d, %d, c0 = %f, c+c0 = %f\n",
-                        //        hipThreadIdx_x,
-                        //        access_id.value,
-                        //        im.value,
-                        //        in.value,
-                        //        c0_thread_buf(offset),
-                        //        c_reduce_thread_buf(offset));
-                    });
+                static_for<0, c_reduce_thread_desc_mperblock_nperblock.GetElementSize(), 1>{}([&](auto i) {
+                    // auto thread_slice_desc = make_cluster_descriptor(
+                    //     Sequence<mreduce_per_thread, nreduce_per_thread>{});
+                    // auto thread_slice_idx = thread_slice_desc.CalculateBottomIndex(make_multi_index(i));
+                    // printf("tid %zd, access_id %d, im, in %d, %d, c0 = %f, c = %f\n",
+                    //         hipThreadIdx_x,
+                    //         access_id.value,
+                    //         thread_slice_idx[I0],
+                    //         thread_slice_idx[I1],
+                    //         c0_thread_buf(i),
+                    //         c_reduce_thread_buf(i));
+                    c_reduce_thread_buf(i) += c0_thread_buf(i);
                 });
+                // static_for<0, mreduce_per_thread, 1>{}([&](auto im) {
+                //     static_for<0, nreduce_per_thread, 1>{}([&](auto in) {
+                //         constexpr auto offset =
+                //             Number<c_reduce_thread_desc_mperblock_nperblock.CalculateOffset(
+                //                 make_tuple(im, in))>{};
+
+                //         c_reduce_thread_buf(offset) += c0_thread_buf(offset);
+                //         // printf("tid %zd, access_id %d, im, in %d, %d, c0 = %f, c+c0 = %f\n",
+                //         //        hipThreadIdx_x,
+                //         //        access_id.value,
+                //         //        im.value,
+                //         //        in.value,
+                //         //        c0_thread_buf(offset),
+                //         //        c_reduce_thread_buf(offset));
+                //     });
+                // });
 
                 using ThreadwiseReduceD0 =
                     ThreadwiseReduction<FloatReduceAcc,
@@ -971,7 +984,9 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                                                                       false>;
 
                 static_for<0, mreduce_per_thread, 1>{}([&](auto i) {
+                    block_sync_lds();
                     BlockwiseReduce::Reduce(d_reduce_work_buf, d0_thread_buf(i)); // blockwise reduced sum
+                    block_sync_lds();
                     BlockwiseReduce::Reduce(d_reduce_work_buf, d1_thread_buf(i)); // blockwise reduced squared sum
                     // printf("tid %zd, access_id %d, mreduce_idx %d, sum = %f, sq sum = %f\n",
                     //        hipThreadIdx_x,
@@ -1014,6 +1029,30 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                     });
                 });
 
+                // scaling
+                c0_thread_copy_global_to_vgpr.Run(
+                    c0_grid_desc_mblock_mperblock_nblock_nperblock,
+                    c0_gamma_grid_buf,
+                    c_reduce_thread_desc_mblock_mperblock_nblock_nperblock,
+                    make_tuple(I0, I0, I0, I0),
+                    c0_thread_buf);
+
+                static_for<0, c_reduce_thread_desc_mperblock_nperblock.GetElementSize(), 1>{}([&](auto i) {
+                    c_reduce_thread_buf(i) *= c0_thread_buf(i); // * gamma
+                });
+
+                c0_thread_copy_global_to_vgpr.Run(
+                    c0_grid_desc_mblock_mperblock_nblock_nperblock,
+                    c0_beta_grid_buf,
+                    c_reduce_thread_desc_mblock_mperblock_nblock_nperblock,
+                    make_tuple(I0, I0, I0, I0),
+                    c0_thread_buf);
+
+                static_for<0, c_reduce_thread_desc_mperblock_nperblock.GetElementSize(), 1>{}([&](auto i) {
+                    c_reduce_thread_buf(i) += c0_thread_buf(i); // + beta
+                });
+
+                // __syncthreads();
                 block_sync_lds();
 
                 c_reduce_thread_copy_vgpr_to_lds.Run(c_reduce_thread_desc_mperblock_nperblock,

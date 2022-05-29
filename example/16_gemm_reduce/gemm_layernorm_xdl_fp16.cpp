@@ -203,8 +203,9 @@ int main(int argc, char* argv[])
         b_k_n.GenerateTensorValue(GeneratorTensor_3<BDataType>{-0.5, 0.5});
         break;
     }
-    c_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<AccDataType>{0});
-    c0_n_bias.GenerateTensorValue(GeneratorTensor_1<AccDataType>{2}); // TODO ANT: test other params
+    c_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<CDataType>{0});
+    acc_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<AccDataType>{0});
+    c0_n_bias.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
     c0_n_gamma.GenerateTensorValue(GeneratorTensor_1<AccDataType>{2});
     c0_n_beta.GenerateTensorValue(GeneratorTensor_1<AccDataType>{2});
 
@@ -273,12 +274,15 @@ int main(int argc, char* argv[])
         auto ref_invoker = ref_gemm.MakeInvoker();
 
         auto ref_argument = ref_gemm.MakeArgument(
-            a_m_k, b_k_n, c_m_n_host_result, a_element_op, b_element_op, c_element_op);
+            a_m_k, b_k_n, acc_m_n_host_result, a_element_op, b_element_op, c_element_op);
 
         ref_invoker.Run(ref_argument);
 
-        // pass &= ck::utils::check_err(
-        //     c_m_n_device_result.mData, c_m_n_host_result.mData, "Error: Incorrect results c");
+        Layernorm(c_m_n_host_result, acc_m_n_host_result, c0_n_bias, c0_n_gamma, c0_n_beta);
+
+        pass &= ck::utils::check_err(
+            c_m_n_device_result.mData, c_m_n_host_result.mData, "Error: Incorrect results c");
+
     }
     return pass ? 0 : 1;
 }
