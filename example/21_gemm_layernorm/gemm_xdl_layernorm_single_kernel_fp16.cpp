@@ -199,6 +199,10 @@ int main(int argc, char* argv[])
         a_m_k.GenerateTensorValue(GeneratorTensor_3<ADataType>{0.0, 1.0});
         b_k_n.GenerateTensorValue(GeneratorTensor_3<BDataType>{-0.5, 0.5});
         break;
+    case 3:
+        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        b_k_n.GenerateTensorValue(GeneratorTensor_1<BDataType>{1});
+        break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
         b_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
@@ -208,6 +212,10 @@ int main(int argc, char* argv[])
     c0_n_bias.GenerateTensorValue(GeneratorTensor_2<CDataType>{-5, 5});
     c0_n_gamma.GenerateTensorValue(GeneratorTensor_2<CDataType>{0, 2});
     c0_n_beta.GenerateTensorValue(GeneratorTensor_2<CDataType>{0, 5});
+    // c0_n_bias.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+    // c0_n_gamma.GenerateTensorValue(GeneratorTensor_1<CDataType>{1});
+    // c0_n_beta.GenerateTensorValue(GeneratorTensor_1<CDataType>{0});
+
     c_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<CDataType>{0});
     acc_m_n_host_result.GenerateTensorValue(GeneratorTensor_1<AccDataType>{0});
 
@@ -285,13 +293,13 @@ int main(int argc, char* argv[])
         pass &= ck::utils::check_err(
             c_m_n_device_result.mData, c_m_n_host_result.mData, "Error: Incorrect results c");
 
-        // if (!pass)
-        // {
-        //     LogRangeAsType<float>(std::cout << "c_host: ", c_m_n_host_result.mData, ",")
-        //                 << std::endl;
-        //     LogRangeAsType<float>(std::cout << "c_device: ", c_m_n_device_result.mData, ",")
-        //                 << std::endl;
-        // }
+        if (!pass)
+        {
+            LogRangeAsType<float>(std::cout << "c_host: ", c_m_n_host_result.mData, ",")
+                        << std::endl;
+            LogRangeAsType<float>(std::cout << "c_device: ", c_m_n_device_result.mData, ",")
+                        << std::endl;
+        }
     }
     return pass ? 0 : 1;
 }
