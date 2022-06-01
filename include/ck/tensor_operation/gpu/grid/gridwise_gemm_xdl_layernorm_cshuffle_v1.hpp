@@ -912,6 +912,8 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                         reduce::Add<FloatReduceAcc>,
                         false>;
 
+                    // d_reduce_work_buf(get_thread_local_1d_id()) = 0;
+
                     static_for<0, mreduce_per_thread, 1>{}([&](auto i) {
                         block_sync_lds();
                         BlockwiseReduce::Reduce(d_reduce_work_buf,
@@ -919,6 +921,13 @@ struct GridwiseGemmLayernorm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                         block_sync_lds();
                         BlockwiseReduce::Reduce(d_reduce_work_buf,
                                                 d1_thread_buf(i)); // blockwise reduced squared sum
+                        // atomicAdd(&d_reduce_work_buf(c_reduce_thread_cluster_idx[I0]), d0_thread_buf(i));
+                        // __syncthreads();
+                        // d0_thread_buf(i) = d_reduce_work_buf[c_reduce_thread_cluster_idx[I0]];
+                        // __syncthreads();
+                        // atomicAdd(&d_reduce_work_buf(c_reduce_thread_cluster_idx[I0]), d1_thread_buf(i));
+                        // __syncthreads();
+                        // d1_thread_buf(i) = d_reduce_work_buf[c_reduce_thread_cluster_idx[I0]];
                     });
 
                     // normalize
