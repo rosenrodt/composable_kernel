@@ -71,19 +71,29 @@ using ReferenceGemm1Instance = ck::tensor_operation::host::
 int main(int argc, char* argv[])
 {
     bool do_verification = true;
-    int init_method      = 1;
+    // int init_method      = 1;
+    int init_method      = 3;
     bool time_kernel     = false;
 
     // GEMM shape
-    ck::index_t M = 1024;
-    ck::index_t N = 1024;
-    ck::index_t K = 64;
-    ck::index_t O = 64;
+    // ck::index_t M = 1024;
+    // ck::index_t N = 1024;
+    // ck::index_t K = 64;
+    // ck::index_t O = 64;
 
-    ck::index_t StrideA = 1024;
-    ck::index_t StrideB0 = 1024;
-    ck::index_t StrideB1 = 1024;
-    ck::index_t StrideC = 1024;
+    // ck::index_t StrideA = 1024;
+    // ck::index_t StrideB0 = 1024;
+    // ck::index_t StrideB1 = 1024;
+    // ck::index_t StrideC = 1024;
+
+    ck::index_t M = 256;
+    ck::index_t N = 256;
+    ck::index_t K = 32;
+    ck::index_t O = 256;
+    ck::index_t StrideA = 256;
+    ck::index_t StrideB0 = 256;
+    ck::index_t StrideB1 = 256;
+    ck::index_t StrideC = 256;
 
     if(argc == 1)
     {
@@ -161,8 +171,8 @@ int main(int argc, char* argv[])
         break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
-        b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
-        b1_n_o.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_Diagonal<B0DataType>{});
+        b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
     }
 
     DeviceMem a_m_k_device_buf(sizeof(ADataType) * a_m_k.mDesc.GetElementSpace());
