@@ -25,6 +25,9 @@ constexpr LoopScheduler make_default_loop_scheduler()
 #endif // if CK_EXPERIMENTAL_INTER_WAVE_SCHEDULING
 }
 
+// Blockwise gemm supporting both regular XDL output M2_M3_M4_M2 and transposed XDL output
+// M2_N2_N3_N4. The latter is similar to "SourceSwap" seen in Tensile
+// TODO ANT: rename class to reflect the above fact
 template <index_t BlockSize,
           typename FloatAB,
           typename FloatAcc,
@@ -174,6 +177,21 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             make_tuple(I1, Number<MRepeat>{}, Number<NRepeat>{}, I1, I1, M0, M1, M2, N));
     }
 
+    // transposed XDL output supporting C_xdl' = B_xdl' * A_xdl'
+    __host__ __device__ static constexpr auto GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4()
+    {
+        constexpr auto c_block_desc_m0_n0_m1_n1_m2_n2 =
+            make_naive_tensor_descriptor_packed(make_tuple(Number<MRepeat>{},
+                                                           Number<NRepeat>{},
+                                                           Number<MWaves>{},
+                                                           Number<NWaves>{},
+                                                           Number<MPerXDL>{},
+                                                           Number<NPerXDL>{}));
+
+        return xdlops_gemm.MakeCDescriptor_M0_N0_M1_N1_M2_N2_N3_N4(c_block_desc_m0_n0_m1_n1_m2_n2);
+    }
+
+    // XDL output supporting C_xdl = A_xdl * B_xdl
     __host__ __device__ static constexpr auto GetCBlockDescriptor_M0_N0_M1_N1_M2_M3_M4_N2()
     {
         constexpr auto c_block_desc_m0_n0_m1_n1_m2_n2 =
@@ -266,6 +284,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     static constexpr auto a_block_desc_m0_m1_m2_k = MakeABlockDescriptor_M0_M1_M2_K();
     static constexpr auto b_block_desc_n0_n1_n2_k = MakeBBlockDescriptor_N0_N1_N2_K();
 
+    // NOTE ANT: a_block_buf for the 2nd gemm is accvgpr buffer
     template <typename ABlockBuffer, typename BBlockBuffer, typename CThreadBuffer>
     __device__ void Run(const ABlockBuffer& a_block_buf,
                         const BBlockBuffer& b_block_buf,

@@ -25,6 +25,7 @@ template <typename GridwiseGemm,
           typename CElementwiseOperation,
           typename AGridDesc_AK0_M_AK1,
           typename BGridDesc_BK0_N_BK1,
+          typename B1GridDesc_BK0_N_BK1,
           typename CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock,
           typename Block2CTileMap,
           bool HasMainKBlockLoop>
@@ -34,12 +35,14 @@ __global__ void
 #endif
         kernel_gemm_gemm_xdl_cshuffle_v1(const FloatAB* __restrict__ p_a_grid,
                                     const FloatAB* __restrict__ p_b_grid,
+                                    const FloatAB* __restrict__ p_b1_grid,
                                     FloatC* __restrict__ p_c_grid,
                                     const AElementwiseOperation a_element_op,
                                     const BElementwiseOperation b_element_op,
                                     const CElementwiseOperation c_element_op,
                                     const AGridDesc_AK0_M_AK1 a_grid_desc_ak0_m_ak1,
                                     const BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1,
+                                    const B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1,
                                     const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
                                         c_grid_desc_mblock_mperblock_nblock_nperblock,
                                     const Block2CTileMap block_2_ctile_map)
@@ -49,6 +52,7 @@ __global__ void
 
     GridwiseGemm::template Run<HasMainKBlockLoop>(p_a_grid,
                                                   p_b_grid,
+                                                  p_b1_grid,
                                                   p_c_grid,
                                                   p_shared,
                                                   a_element_op,
@@ -56,6 +60,7 @@ __global__ void
                                                   c_element_op,
                                                   a_grid_desc_ak0_m_ak1,
                                                   b_grid_desc_bk0_n_bk1,
+                                                  b1_grid_desc_bk0_n_bk1,
                                                   c_grid_desc_mblock_mperblock_nblock_nperblock,
                                                   block_2_ctile_map);
 #else
@@ -82,18 +87,23 @@ template <typename FloatAB,
           InMemoryDataOperationEnum CGlobalMemoryDataOperation,
           typename AGridDesc_AK0_M_AK1,
           typename BGridDesc_BK0_N_BK1,
+          typename B1GridDesc_BK0_N_BK1,
           typename CGridDesc_M_N,
           index_t NumGemmKPrefetchStage,
           index_t BlockSize,
           index_t MPerBlock,
           index_t NPerBlock,
           index_t KPerBlock,
+          index_t Gemm1NPerBlock,
+          index_t Gemm1KPerBlock,
           index_t AK1Value,
           index_t BK1Value,
+          index_t B1K1Value,
           index_t MPerXdl,
           index_t NPerXdl,
           index_t MXdlPerWave,
           index_t NXdlPerWave,
+          index_t Gemm1NXdlPerWave,
           typename ABlockTransferThreadClusterLengths_AK0_M_AK1,
           typename ABlockTransferThreadClusterArrangeOrder,
           typename ABlockTransferSrcAccessOrder,
@@ -110,6 +120,14 @@ template <typename FloatAB,
           index_t BBlockTransferDstScalarPerVector_BK1,
           bool BThreadTransferSrcResetCoordinateAfterRun,
           index_t BBlockLdsExtraN,
+          typename B1BlockTransferThreadClusterLengths_BK0_N_BK1,
+          typename B1BlockTransferThreadClusterArrangeOrder,
+          typename B1BlockTransferSrcAccessOrder,
+          index_t B1BlockTransferSrcVectorDim,
+          index_t B1BlockTransferSrcScalarPerVector,
+          index_t B1BlockTransferDstScalarPerVector_BK1,
+          bool B1ThreadTransferSrcResetCoordinateAfterRun,
+          index_t B1BlockLdsExtraN,
           index_t CShuffleMXdlPerWavePerShuffle,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
@@ -200,6 +218,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     __host__ __device__ static constexpr bool
     CheckValidity(const AGridDesc_AK0_M_AK1& a_grid_desc_ak0_m_ak1,
                   const BGridDesc_BK0_N_BK1& b_grid_desc_bk0_n_bk1,
+                  const B1GridDesc_BK0_N_BK1& b1_grid_desc_bk0_n_bk1,
                   const CGridDesc_M_N& c_grid_desc_m_n,
                   const Block2CTileMap& block_2_ctile_map)
     {
@@ -210,20 +229,43 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const auto M = a_grid_desc_ak0_m_ak1.GetLength(I1);
         const auto N = b_grid_desc_bk0_n_bk1.GetLength(I1);
         const auto K = a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2);
+        const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
 
         if(!(M == c_grid_desc_m_n.GetLength(I0) && N == c_grid_desc_m_n.GetLength(I1)))
-            return false;
-
-        if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0))
-            return false;
-
-        // check gridwise gemm pipeline
-        const auto num_k_loop = K / KPerBlock;
-
-        if(!GridwiseGemmPipe::IsSupported(num_k_loop))
         {
             return false;
         }
+
+        if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0))
+        {
+            return false;
+        }
+
+        if(!(NPerBlock % Gemm1KPerBlock == 0))
+        {
+            return false;
+        }
+
+        // check gridwise gemm pipeline
+        const auto num_gemm0_k_loop = K / KPerBlock;
+        if(!GridwiseGemmPipe::IsSupported(num_gemm0_k_loop))
+        {
+            return false;
+        }
+
+        const auto num_gemm1_k_inner_loop = NPerBlock / Gemm1KPerBlock;
+        if(!GridwiseGemmPipe::IsSupported(num_gemm1_k_inner_loop))
+        {
+            return false;
+        }
+
+        const auto num_gemm1_k_outer_loop = N / NPerBlock;
+        if(!GridwiseGemmPipe::IsSupported(num_gemm1_k_outer_loop))
+        {
+            return false;
+        }
+
+        assert(num_gemm1_k_outer_loop * num_gemm1_k_inner_loop == N / Gemm1KPerBlock);
 
         if(!block_2_ctile_map.CheckValidity(c_grid_desc_m_n))
         {
@@ -234,6 +276,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         return true;
     }
 
+    // TODO ANT: also consider gemm1 loop
     __host__ __device__ static constexpr bool CalculateHasMainKBlockLoop(index_t K)
     {
         const index_t num_loop = K / KPerBlock;
@@ -248,12 +291,12 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const auto N = c_grid_desc_m_n.GetLength(I1);
 
         const auto MBlock = M / MPerBlock;
-        const auto NBlock = N / NPerBlock;
+        const auto NBlock = N / Gemm1NPerBlock;
 
         const auto c_grid_desc_mblock_mperblock_nblock_nperblock = transform_tensor_descriptor(
             c_grid_desc_m_n,
             make_tuple(make_unmerge_transform(make_tuple(MBlock, Number<MPerBlock>{})),
-                       make_unmerge_transform(make_tuple(NBlock, Number<NPerBlock>{}))),
+                       make_unmerge_transform(make_tuple(NBlock, Number<Gemm1NPerBlock>{}))),
             make_tuple(Sequence<0>{}, Sequence<1>{}),
             make_tuple(Sequence<0, 1>{}, Sequence<2, 3>{}));
 
@@ -264,7 +307,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     __host__ __device__ static constexpr auto
     MakeDefaultBlock2CTileMap(const CGridDesc_M_N& c_grid_desc_m_n)
     {
-        return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock, NPerBlock, CGridDesc_M_N>(
+        return BlockToCTileMap_M00_N0_M01Adapt<MPerBlock, Gemm1NPerBlock, CGridDesc_M_N>(
             c_grid_desc_m_n);
     }
 
@@ -277,6 +320,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     template <bool HasMainKBlockLoop, typename Block2CTileMap>
     __device__ static void Run(const FloatAB* __restrict__ p_a_grid,
                                const FloatAB* __restrict__ p_b_grid,
+                               const FloatAB* __restrict__ p_b1_grid,
                                FloatC* __restrict__ p_c_grid,
                                void* __restrict__ p_shared,
                                const AElementwiseOperation& a_element_op,
@@ -284,6 +328,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                const CElementwiseOperation& c_element_op,
                                const AGridDesc_AK0_M_AK1& a_grid_desc_ak0_m_ak1,
                                const BGridDesc_BK0_N_BK1& b_grid_desc_bk0_n_bk1,
+                               const B1GridDesc_BK0_N_BK1& b1_grid_desc_bk0_n_bk1,
                                const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
                                    c_grid_desc_mblock_mperblock_nblock_nperblock,
                                const Block2CTileMap& block_2_ctile_map)
@@ -385,6 +430,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 make_multi_index(0, 0, 0),
                 ck::tensor_operation::element_wise::PassThrough{});
 
+        // TODO ANT: revise comments
         // GEMM definition
         //   c_mtx += transpose(a_mtx) * b_mtx
         //     a_mtx[K0PerBlock, MPerBlock] is in LDS
@@ -392,10 +438,13 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         //     c_mtx[MPerBlock, NPerBlock] is distributed among threads, and saved in
         //       register
         // sanity check
+        // TODO ANT: KPack for Gemm0 & Gemm1
         constexpr index_t KPack = math::max(
             math::lcm(AK1, BK1), MfmaSelector<FloatAB, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
 
-        auto blockwise_gemm = BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_Selector<
+        // TODO ANT: to refactor: blockwise gemm output layout
+        // TODO ANT: interwave scheduling
+        auto blockwise_gemm = BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1<
             BlockSize,
             FloatAB,
             FloatGemmAcc,
@@ -405,8 +454,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             NPerXdl,
             MXdlPerWave,
             NXdlPerWave,
-            KPack,
-            LoopSched>();
+            KPack>{};
 
         auto c_thread_buf = blockwise_gemm.GetCThreadBuffer();
 
@@ -432,6 +480,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             (a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2)) /
             KPerBlock);
 
+        // TODO ANT: can 2nd gemm use the same gridwise_gemm_pipeline?
         gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(a_grid_desc_ak0_m_ak1,
                                                                a_block_desc_ak0_m_ak1,
                                                                a_blockwise_copy,
