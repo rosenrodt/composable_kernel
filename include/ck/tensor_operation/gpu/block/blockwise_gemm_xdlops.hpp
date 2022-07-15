@@ -151,6 +151,21 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                       "wrong!");
     }
 
+    // transposed XDL output supporting C_xdl' = B_xdl' * A_xdl'
+    __host__ __device__ static constexpr auto GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4()
+    {
+        constexpr auto c_m0_m1_m2_n_tblk_lens = xdlops_gemm.GetCM0M1M2NThreadBlkLengths();
+
+        constexpr auto M0 = c_m0_m1_m2_n_tblk_lens[I0];
+        constexpr auto M1 = c_m0_m1_m2_n_tblk_lens[I1];
+        constexpr auto M2 = c_m0_m1_m2_n_tblk_lens[I2];
+        constexpr auto N  = c_m0_m1_m2_n_tblk_lens[I3];
+
+        return make_naive_tensor_descriptor_packed(
+            make_tuple(Number<MRepeat>{}, Number<NRepeat>{}, I1, I1, N, M0, M1, M2));
+    }
+
+    // XDL output supporting C_xdl = A_xdl * B_xdl
     __host__ __device__ static constexpr auto GetCThreadDescriptor_M0_N0_M1_N1_M2_M3_M4_N2()
     {
         constexpr auto c_m0_m1_m2_n_tblk_lens = xdlops_gemm.GetCM0M1M2NThreadBlkLengths();
@@ -284,7 +299,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     static constexpr auto a_block_desc_m0_m1_m2_k = MakeABlockDescriptor_M0_M1_M2_K();
     static constexpr auto b_block_desc_n0_n1_n2_k = MakeBBlockDescriptor_N0_N1_N2_K();
 
-    // NOTE ANT: a_block_buf for the 2nd gemm is accvgpr buffer
+    // NOTE ANT: a_block_buf for the 2nd gemm is vgpr buffer
     template <typename ABlockBuffer, typename BBlockBuffer, typename CThreadBuffer>
     __device__ void Run(const ABlockBuffer& a_block_buf,
                         const BBlockBuffer& b_block_buf,

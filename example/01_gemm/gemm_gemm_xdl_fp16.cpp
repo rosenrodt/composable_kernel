@@ -80,8 +80,8 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     8,           // B1K1
     32,          // MPerXDL
     32,          // NPerXDL
-    4,           // MXdlPerWave
-    2,           // NXdlPerWave
+    1,           // MXdlPerWave
+    4,           // NXdlPerWave
     2,           // Gemm1NXdlPerWave
     S<4, 64, 1>, // ABlockTransfer
     S<1, 0, 2>,
@@ -89,21 +89,21 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     2,
     8,
     8,
-    1,
+    true,
     S<4, 64, 1>, // BBlockTransfer
     S<1, 0, 2>,
     S<1, 0, 2>,
     2,
     8,
     8,
+    true,
+    S<16, 16, 1>, // B1BlockTransfer
+    S<0, 2, 1>,
+    S<0, 2, 1>,
     1,
-    S<4, 64, 1>, // B1BlockTransfer
-    S<1, 0, 2>,
-    S<1, 0, 2>,
+    4,
     2,
-    8,
-    8,
-    1,
+    false,
     1,              // CShuffleMXdlPerWavePerShuffle
     1,              // CShuffleNXdlPerWavePerShuffle
     S<1, 32, 1, 8>, // CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock

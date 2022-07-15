@@ -488,6 +488,7 @@ struct DeviceGemmGemm_Xdl_CShuffle : public BaseOperator // TODO ANT: inherit fr
         {
             if(GridwiseGemm::CheckValidity(a_grid_desc_ak0_m_ak1_,
                                            b_grid_desc_bk0_n_bk1_,
+                                           b1_grid_desc_bk0_n_bk1_,
                                            c_grid_desc_m_n_,
                                            block_2_ctile_map_))
             {
@@ -688,7 +689,7 @@ struct DeviceGemmGemm_Xdl_CShuffle : public BaseOperator // TODO ANT: inherit fr
                                                       index_t StrideC,
                                                       AElementwiseOperation a_element_op,
                                                       BElementwiseOperation b_element_op,
-                                                      CElementwiseOperation c_element_op) override
+                                                      CElementwiseOperation c_element_op) /* override */
     {
         return std::make_unique<Argument>(static_cast<const ADataType*>(p_a),
                                           static_cast<const BDataType*>(p_b),
