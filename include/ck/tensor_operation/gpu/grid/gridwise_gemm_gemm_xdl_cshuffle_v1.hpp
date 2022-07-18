@@ -192,7 +192,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     {
         // B1 matrix in LDS memory, dst of blockwise copy
         return make_naive_tensor_descriptor(
-            make_tuple(B1K0, Number<Gemm1NPerBlock>{}, B1BK1),
+            make_tuple(B1K0, Number<Gemm1NPerBlock>{}, B1K1),
             make_tuple(Number<Gemm1NPerBlock + B1BlockLdsExtraN>{} * B1K1, B1K1, I1));
     }
 
@@ -539,9 +539,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         // Gemm1
         //
         // Acc matrix threadwise copy: AccVGPR to VGPR and downcast to A data type
-        constexpr auto acc_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / mfma_group_size, 0, 0);
-        constexpr auto b1_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / B1K1, 0, 0);
-
         constexpr auto acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4 =
             blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4();
         constexpr auto m0 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I0);
@@ -552,6 +549,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         constexpr auto n2 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I5);
         constexpr auto n3 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I6);
         constexpr auto n4 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I7);
+
+        constexpr auto acc_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / n4, 0, 0);
+        constexpr auto b1_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / B1K1, 0, 0);
 
         // acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4 to a1_thread_desc_k0_m_k1
         // n0_n1_n2_n3 -> k0
@@ -569,22 +569,22 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         // actually a threadwise copy. this variant needs to support RunRead() and RunWrite()
         // TODO ANT: real blockwise copy from c_block_desc to c_thread_desc
         auto a1_blockwise_copy = ThreadwiseTensorSliceTransfer_v3r1<
-            Sequence<n0 * n1 * n2 * n3, m0 * m1 * m2, n4>{}, // ThreadSliceLengths
-            tensor_operation::element_wise::PassThrough,     // SrcElementwiseOperation
-            tensor_operation::element_wise::PassThrough,     // DstElementwiseOperation
-            InMemoryDataOperationEnum::Set,                  // DstInMemOp
-            FloatGemmAcc,                                    // SrcData
-            FloatAB,                                         // DstData
-            a1_thread_desc_k0_m_k1,                          // SrcDesc
-            a1_thread_desc_k0_m_k1,                          // DstDesc
-            Sequence<1, 0, 2>,                               // SrcDimAccessOrder
-            Sequence<1, 0, 2>,                               // DstDimAccessOrder
-            2,                                               // SrcVectorDim
-            2,                                               // DstVectorDim
-            n4,                                              // SrcScalarPerVector
-            n4,                                              // DstScalarPerVector
-            1,                                               // SrcScalarStrideInVector
-            1,                                               // DstScalarStrideInVector
+            Sequence<n0 * n1 * n2 * n3, m0 * m1 * m2, n4>, // ThreadSliceLengths
+            tensor_operation::element_wise::PassThrough,   // SrcElementwiseOperation
+            tensor_operation::element_wise::PassThrough,   // DstElementwiseOperation
+            InMemoryDataOperationEnum::Set,                // DstInMemOp
+            FloatGemmAcc,                                  // SrcData
+            FloatAB,                                       // DstData
+            decltype(a1_thread_desc_k0_m_k1),              // SrcDesc
+            decltype(a1_thread_desc_k0_m_k1),              // DstDesc
+            Sequence<1, 0, 2>,                             // SrcDimAccessOrder
+            Sequence<1, 0, 2>,                             // DstDimAccessOrder
+            2,                                             // SrcVectorDim
+            2,                                             // DstVectorDim
+            n4,                                            // SrcScalarPerVector
+            n4,                                            // DstScalarPerVector
+            1,                                             // SrcScalarStrideInVector
+            1,                                             // DstScalarStrideInVector
             false, // ThreadTransferSrcResetCoordinateAfterRun
             true,  // ThreadTransferDstResetCoordinateAfterRun
             NumGemmKPrefetchStage>(a1_thread_desc_k0_m_k1,

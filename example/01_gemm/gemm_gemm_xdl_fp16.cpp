@@ -77,7 +77,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     32,          // Gemm1KPerBlock
     8,           // AK1
     8,           // BK1
-    8,           // B1K1
+    2,           // B1K1
     32,          // MPerXDL
     32,          // NPerXDL
     1,           // MXdlPerWave
