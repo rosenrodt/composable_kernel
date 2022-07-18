@@ -30,6 +30,17 @@ enum struct MfmaInstr
     mfma_f64_16x16x4f64
 };
 
+// template <typename T, bool TransposeC>
+// struct mfma_base_type
+// {
+//     template <index_t MPerXdlops, index_t NPerXdlops, class FloatA, class FloatB, class FloatC>
+//     __device__ void run(const FloatA& a, const FloatB& b, FloatC& reg_c) const
+//     {
+//         if constexpr (!TransposeC) T::run(a, b, reg_c);
+//         else T::run(b, a, reg_c);
+//     }
+// };
+
 template <MfmaInstr instr>
 struct mfma_type;
 
@@ -579,7 +590,11 @@ struct MfmaSelector
     static constexpr index_t GetK1PerXdlops() { return selected_mfma.k_per_blk; }
 };
 
-template <typename base_type, index_t MPerXdlops, index_t NPerXdlops, index_t KPack>
+template <typename base_type,
+          index_t MPerXdlops,
+          index_t NPerXdlops,
+          index_t KPack,
+          bool TransposeC = false>
 struct XdlopsGemm
 {
     static constexpr auto I0 = Number<0>{};
@@ -735,7 +750,14 @@ struct XdlopsGemm
                       "base base_type must be double, float, half, bfloat16, and int8_t!");
 
         static_for<0, KPack / mfma_instr.k_per_blk, 1>{}([&](auto k) {
-            mfma_instr.template run<MPerXdlops, NPerXdlops>(p_a_wave[k], p_b_wave[k], p_c_thread);
+            if constexpr (!TransposeC)
+            {
+                mfma_instr.template run<MPerXdlops, NPerXdlops>(p_a_wave[k], p_b_wave[k], p_c_thread);
+            }
+            else
+            {
+                mfma_instr.template run<MPerXdlops, NPerXdlops>(p_b_wave[k], p_a_wave[k], p_c_thread);
+            }
         });
     }
 

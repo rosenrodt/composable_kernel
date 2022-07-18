@@ -160,6 +160,45 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
 
     using GridwiseGemmPipe = GridwiseGemmPipeline_v1<NumGemmKPrefetchStage>;
 
+    template <typename AK0MK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeAMmaTileDescriptor_M0_M1_M2_K(const AK0MK1BlockDesc&)
+    {
+        return transform_tensor_descriptor(
+            AK0MK1BlockDesc{},
+            make_tuple(
+                make_merge_transform_v3_division_mod(make_tuple(Number<AK0>{}, Number<AK1>{})),
+                make_unmerge_transform(
+                    make_tuple(Number<MRepeat>{}, Number<MWaves>{}, Number<MPerXDL>{}))),
+            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
+            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
+    }
+
+    template <typename AK0MK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeAMmaTileDescriptor_M0_I1_I1_K(const AK0MK1BlockDesc&)
+    {
+        return transform_tensor_descriptor(
+            AK0MK1BlockDesc{},
+            make_tuple(
+                make_merge_transform_v3_division_mod(make_tuple(Number<AK0>{}, Number<AK1>{})),
+                make_unmerge_transform(
+                    make_tuple(Number<MRepeat>{}, Number<1>{}, Number<1>{}))),
+            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
+            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
+    }
+
+    template <typename BK0NK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeBMmaTileDescriptor_N0_N1_N2_K(const BK0NK1BlockDesc&)
+    {
+        return transform_tensor_descriptor(
+            BK0NK1BlockDesc{},
+            make_tuple(
+                make_merge_transform_v3_division_mod(make_tuple(Number<BK0>{}, Number<BK1>{})),
+                make_unmerge_transform(
+                    make_tuple(Number<NRepeat>{}, Number<NWaves>{}, Number<NPerXDL>{}))),
+            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
+            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
+    }
+
     __host__ __device__ static constexpr auto GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1()
     {
         // A matrix in LDS memory, dst of blockwise copy
@@ -255,7 +294,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const auto M = a_grid_desc_ak0_m_ak1.GetLength(I1);
         const auto N = b_grid_desc_bk0_n_bk1.GetLength(I1);
         const auto K = a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2);
-        const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
+        // const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
 
         if(!(M == c_grid_desc_m_n.GetLength(I0) && N == c_grid_desc_m_n.GetLength(I1)))
         {
@@ -388,7 +427,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             __builtin_amdgcn_readfirstlane(block_work_idx[I1] * Gemm1NPerBlock);
 
         // lds max alignment
-        constexpr auto max_lds_align = math::lcm(AK1, BK1);
+        constexpr auto max_lds_align = math::lcm(math::lcm(AK1, BK1), B1K1);
 
         // A matrix in LDS memory, dst of blockwise copy
         constexpr auto a_block_desc_ak0_m_ak1 = GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
@@ -396,13 +435,14 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         // B matrix in LDS memory, dst of blockwise copy
         constexpr auto b_block_desc_bk0_n_bk1 = GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
-        // B1 matrix in LDS memory, dst of blockwise copy
-        constexpr auto b1_block_desc_bk0_n_bk1 = GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
-
         // for n in N0:                   // gemm1 summation loop
         //   for k in K0:                 // gemm0 summation loop
         //     acc0 += A[m][k] * B0[k][n] // acc0[m][n]
         //   acc1 += acc0 * B1[n][o]      // acc1[m][o]
+
+        //
+        // set up Gemm0
+        //
 
         // A matrix blockwise copy
         auto a_blockwise_copy =
@@ -425,7 +465,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                                 ABlockTransferDstScalarPerVector_AK1,
                                                 1,
                                                 1,
-                                                AThreadTransferSrcResetCoordinateAfterRun,
+                                                true, // TODO ANT: check if false
                                                 true,
                                                 NumGemmKPrefetchStage>(
                 a_grid_desc_ak0_m_ak1,
@@ -456,7 +496,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                                 BBlockTransferDstScalarPerVector_BK1,
                                                 1,
                                                 1,
-                                                BThreadTransferSrcResetCoordinateAfterRun,
+                                                true, // TODO ANT: check if false
                                                 true,
                                                 NumGemmKPrefetchStage>(
                 b_grid_desc_bk0_n_bk1,
@@ -474,25 +514,25 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         //     c_mtx[MPerBlock, NPerBlock] is distributed among threads, and saved in
         //       register
         // sanity check
-        // TODO ANT: KPack for Gemm0 & Gemm1
         constexpr index_t KPack = math::max(
             math::lcm(AK1, BK1), MfmaSelector<FloatAB, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
 
         // TODO ANT: to refactor: blockwise gemm output layout
         // TODO ANT: interwave scheduling
         auto blockwise_gemm = BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1<
-            BlockSize,
-            FloatAB,
-            FloatGemmAcc,
-            decltype(a_block_desc_ak0_m_ak1),
-            decltype(b_block_desc_bk0_n_bk1),
-            MPerXdl,
-            NPerXdl,
-            MXdlPerWave,
-            NXdlPerWave,
-            KPack>{};
+                BlockSize,
+                FloatAB,
+                FloatGemmAcc,
+                decltype(MakeAMmaTileDescriptor_M0_M1_M2_K(a_block_desc_ak0_m_ak1)),
+                decltype(MakeBMmaTileDescriptor_N0_N1_N2_K(b_block_desc_bk0_n_bk1)),
+                MPerXdl,
+                NPerXdl,
+                MXdlPerWave,
+                NXdlPerWave,
+                KPack
+                true>{}; // TransposeC
 
-        auto c_thread_buf = blockwise_gemm.GetCThreadBuffer();
+        auto acc_thread_buf = blockwise_gemm.GetCThreadBuffer();
 
         // LDS allocation for A and B: be careful of alignment
         constexpr auto a_block_space_size_aligned = math::integer_least_multiple(
@@ -507,40 +547,25 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
 
         constexpr auto a_block_slice_copy_step = make_multi_index(KPerBlock / AK1, 0, 0);
         constexpr auto b_block_slice_copy_step = make_multi_index(KPerBlock / BK1, 0, 0);
+        const auto a_block_reset_copy_step = make_multi_index(-a_grid_desc_ak0_m_ak1.GetLength(I0), 0, 0);
+        const auto b_block_reset_copy_step = make_multi_index(-b_grid_desc_bk0_n_bk1.GetLength(I0), NPerBlock, 0);
 
         // gridwise GEMM pipeline
         const auto gridwise_gemm_pipeline =
             GridwiseGemmPipeline_v1_Selector<NumGemmKPrefetchStage, LoopSched>();
 
-        //
-        // Gemm0
-        //
         const index_t num_k_block_main_loop = __builtin_amdgcn_readfirstlane(
             (a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2)) /
             KPerBlock);
 
-        // TODO ANT: can 2nd gemm use the same gridwise_gemm_pipeline?
-        gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(a_grid_desc_ak0_m_ak1,
-                                                               a_block_desc_ak0_m_ak1,
-                                                               a_blockwise_copy,
-                                                               a_grid_buf,
-                                                               a_block_buf,
-                                                               a_block_slice_copy_step,
-                                                               b_grid_desc_bk0_n_bk1,
-                                                               b_block_desc_bk0_n_bk1,
-                                                               b_blockwise_copy,
-                                                               b_grid_buf,
-                                                               b_block_buf,
-                                                               b_block_slice_copy_step,
-                                                               blockwise_gemm,
-                                                               c_thread_buf,
-                                                               num_k_block_main_loop);
         //
-        // Gemm1
+        // set up Gemm1
         //
+
         // Acc matrix threadwise copy: AccVGPR to VGPR and downcast to A data type
         constexpr auto acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4 =
             blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4();
+
         constexpr auto m0 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I0);
         constexpr auto n0 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I1);
         constexpr auto m1 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I2);
@@ -550,7 +575,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         constexpr auto n3 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I6);
         constexpr auto n4 = acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetLength(I7);
 
-        constexpr auto acc_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / n4, 0, 0);
+        constexpr auto a1_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / n4, 0, 0);
         constexpr auto b1_block_slice_copy_step = make_multi_index(Gemm1KPerBlock / B1K1, 0, 0);
 
         // acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4 to a1_thread_desc_k0_m_k1
@@ -564,6 +589,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                        make_pass_through_transform(n4)),
             make_tuple(Sequence<1, 3, 5, 6>{}, Sequence<0, 2, 4>{}, Sequence<7>{}),
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
+
+        // B1 matrix in LDS memory, dst of blockwise copy
+        constexpr auto b1_block_desc_bk0_n_bk1 = GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
         // A1 matrix blockwise copy
         // actually a threadwise copy. this variant needs to support RunRead() and RunWrite()
@@ -585,7 +613,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             n4,                                            // DstScalarPerVector
             1,                                             // SrcScalarStrideInVector
             1,                                             // DstScalarStrideInVector
-            false, // ThreadTransferSrcResetCoordinateAfterRun
+            true,  // ThreadTransferSrcResetCoordinateAfterRun TODO ANT: check if false
             true,  // ThreadTransferDstResetCoordinateAfterRun
             NumGemmKPrefetchStage>(a1_thread_desc_k0_m_k1,
                                    make_multi_index(0, 0, 0),
@@ -615,7 +643,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                                 B1BlockTransferDstScalarPerVector_BK1,
                                                 1,
                                                 1,
-                                                B1ThreadTransferSrcResetCoordinateAfterRun,
+                                                true, // TODO ANT: check if false
                                                 true,
                                                 NumGemmKPrefetchStage>(
                 b1_grid_desc_bk0_n_bk1,
@@ -625,13 +653,86 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 make_multi_index(0, 0, 0),
                 tensor_operation::element_wise::PassThrough{});
 
-        auto a1_block_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatAB>(
+        auto a1_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatAB>(
             acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetElementSpaceSize());
 
         // reuse LDS space for gemm0's b_block_buf
         auto b1_block_buf = make_dynamic_buffer<AddressSpaceEnum::Lds>(
             static_cast<FloatAB*>(p_shared) + a_block_space_size_aligned,
             b1_block_desc_bk0_n_bk1.GetElementSpaceSize());
+
+        constexpr index_t Gemm1KPack = math::max(
+            math::lcm(MfmaSelector<FloatAB, MPerXdl, NPerXdl>::selected_mfma.group_size, B1K1),
+            MfmaSelector<FloatAB, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
+
+        auto gemm1_blockwise_gemm = BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1<
+            BlockSize,
+            FloatAB,
+            FloatGemmAcc,
+            decltype(MakeAMmaTileDescriptor_M0_I1_I1_K(a1_thread_desc_k0_m_k1)),
+            decltype(MakeBMmaTileDescriptor_N0_N1_N2_K(b1_block_desc_bk0_n_bk1)),
+            MPerBlock,
+            Gemm1NPerBlock,
+            Gemm1KPerBlock,
+            MPerXdl,
+            NPerXdl,
+            MXdlPerWave,
+            Gemm1NXdlPerWave,
+            Gemm1KPack,
+            false>; // TransposeC
+
+        auto c_thread_buf = gemm1_blockwise_gemm.GetCThreadBuffer();
+
+        const index_t num_gemm1_k_block_outer_loop = b_grid_desc_bk0_n_bk1.GetLength(I1) / NPerBlock;
+        constexpr index_t num_gemm1_k_block_inner_loop = NPerBlock / Gemm1KPerBlock;
+
+        index_t gemm1_k_block_outer_index = 0;
+        // j loop
+        do
+        {
+            // gemm0
+            gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(a_grid_desc_ak0_m_ak1,
+                                                                   a_block_desc_ak0_m_ak1,
+                                                                   a_blockwise_copy,
+                                                                   a_grid_buf,
+                                                                   a_block_buf,
+                                                                   a_block_slice_copy_step,
+                                                                   b_grid_desc_bk0_n_bk1,
+                                                                   b_block_desc_bk0_n_bk1,
+                                                                   b_blockwise_copy,
+                                                                   b_grid_buf,
+                                                                   b_block_buf,
+                                                                   b_block_slice_copy_step,
+                                                                   blockwise_gemm,
+                                                                   acc_thread_buf,
+                                                                   num_k_block_main_loop);
+
+            // gemm1
+            // TODO ANT: take care cases where HasMainKBlockLoop is false
+            // static_for<0, num_gemm1_k_block_inner_loop, 1>{}([&](auto gemm1_k_block_inner_idx) {
+                gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(
+                    a1_thread_desc_k0_m_k1,
+                    a1_thread_desc_k0_m_k1,
+                    a1_blockwise_copy,
+                    acc_thread_buf,
+                    a1_thread_buf,
+                    a1_block_slice_copy_step,
+                    b1_grid_desc_bk0_n_bk1,
+                    b1_block_desc_bk0_n_bk1,
+                    b1_blockwise_copy,
+                    b1_grid_buf,
+                    b1_block_buf,
+                    b1_block_slice_copy_step,
+                    gemm1_blockwise_gemm,
+                    c_thread_buf,
+                    num_gemm1_k_block_inner_loop);
+            // });
+
+            a_blockwise_copy.MoveSrcSliceWindow(a_grid_desc_ak0_m_ak1, a_block_reset_copy_step); // rewind K
+            b_blockwise_copy.MoveSrcSliceWindow(b_grid_desc_bk0_n_bk1, b_block_reset_copy_step); // rewind K and step N
+            // don't need to rewind b1
+
+        } while (++gemm1_k_block_outer_index < num_gemm1_k_block_outer_loop); // end j loop
 
         // shuffle C and write out
 #if 0

@@ -31,13 +31,19 @@ constexpr LoopScheduler make_default_loop_scheduler()
 template <index_t BlockSize,
           typename FloatAB,
           typename FloatAcc,
-          typename AK0MK1BlockDesc,
-          typename BK0NK1BlockDesc,
+        //   typename AK0MK1BlockDesc, // could be thread desc
+        //   typename BK0NK1BlockDesc,
+          typename AMmaTileDesc,
+          typename BMmaTileDesc,
+          index_t MPerBlock,
+          index_t NPerBlock,
+          index_t KPerBlock,
           index_t MPerXDL,
           index_t NPerXDL,
           index_t MRepeat,
           index_t NRepeat,
-          index_t KPack>
+          index_t KPack,
+          bool TransposedC = false>
 struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 {
     static constexpr auto I0 = Number<0>{};
@@ -49,15 +55,15 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
     static constexpr index_t WaveSize = get_warp_size();
 
-    static constexpr index_t MPerBlock = AK0MK1BlockDesc{}.GetLength(I1);
-    static constexpr index_t NPerBlock = BK0NK1BlockDesc{}.GetLength(I1);
-    static constexpr index_t KPerBlock =
-        BK0NK1BlockDesc{}.GetLength(I0) * BK0NK1BlockDesc{}.GetLength(I2);
+    // static constexpr index_t MPerBlock = AK0MK1BlockDesc{}.GetLength(I1);
+    // static constexpr index_t NPerBlock = BK0NK1BlockDesc{}.GetLength(I1);
+    // static constexpr index_t KPerBlock =
+    //     BK0NK1BlockDesc{}.GetLength(I0) * BK0NK1BlockDesc{}.GetLength(I2);
 
-    static constexpr index_t A_K0 = AK0MK1BlockDesc{}.GetLength(I0);
-    static constexpr index_t B_K0 = BK0NK1BlockDesc{}.GetLength(I0);
-    static constexpr index_t A_K1 = AK0MK1BlockDesc{}.GetLength(I2);
-    static constexpr index_t B_K1 = BK0NK1BlockDesc{}.GetLength(I2);
+    static constexpr index_t A_K0 = AMmaTileDesc{}.GetLength(I0);
+    static constexpr index_t B_K0 = BMmaTileDesc{}.GetLength(I0);
+    static constexpr index_t A_K1 = AMmaTileDesc{}.GetLength(I2);
+    static constexpr index_t B_K1 = BMmaTileDesc{}.GetLength(I2);
 
     static constexpr auto xdlops_gemm = XdlopsGemm<FloatAB, MPerXDL, NPerXDL, KPack>{};
 
@@ -140,8 +146,8 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
     __host__ __device__ BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1()
     {
-        static_assert(AK0MK1BlockDesc::IsKnownAtCompileTime() &&
-                          BK0NK1BlockDesc::IsKnownAtCompileTime(),
+        static_assert(AMmaTileDesc::IsKnownAtCompileTime() &&
+                          BMmaTileDesc::IsKnownAtCompileTime(),
                       "wrong! Desc should be known at compile-time");
 
         static_assert(ThisThreadBlock::GetNumOfThread() == MWaves * NWaves * WaveSize,
@@ -272,7 +278,8 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             c_grid_desc_g_m0_n0_m1_n1_m2_n2);
     }
 
-    __host__ __device__ static constexpr auto MakeABlockDescriptor_M0_M1_M2_K()
+    template <typename AK0MK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeABlockDescriptor_M0_M1_M2_K(const AK0MK1BlockDesc&)
     {
         return transform_tensor_descriptor(
             AK0MK1BlockDesc{},
@@ -284,7 +291,21 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
     }
 
-    __host__ __device__ static constexpr auto MakeBBlockDescriptor_N0_N1_N2_K()
+    template <typename AK0MK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeAThreadDescriptor_M0_M1_M2_K(const AK0MK1BlockDesc&)
+    {
+        return transform_tensor_descriptor(
+            AK0MK1BlockDesc{},
+            make_tuple(
+                make_merge_transform_v3_division_mod(make_tuple(Number<A_K0>{}, Number<A_K1>{})),
+                make_unmerge_transform(
+                    make_tuple(Number<MRepeat>{}, Number<1>{}, Number<1>{}))),
+            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
+            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
+    }
+
+    template <typename BK0NK1BlockDesc>
+    __host__ __device__ static constexpr auto MakeBBlockDescriptor_N0_N1_N2_K(const BK0NK1BlockDesc&)
     {
         return transform_tensor_descriptor(
             BK0NK1BlockDesc{},
@@ -296,8 +317,8 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
     }
 
-    static constexpr auto a_block_desc_m0_m1_m2_k = MakeABlockDescriptor_M0_M1_M2_K();
-    static constexpr auto b_block_desc_n0_n1_n2_k = MakeBBlockDescriptor_N0_N1_N2_K();
+    static constexpr AMmaTileDesc a_block_desc_m0_m1_m2_k;
+    static constexpr BMmaTileDesc b_block_desc_n0_n1_n2_k;
 
     // NOTE ANT: a_block_buf for the 2nd gemm is vgpr buffer
     template <typename ABlockBuffer, typename BBlockBuffer, typename CThreadBuffer>
@@ -391,6 +412,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     BThreadCopy b_thread_copy_{CalculateBThreadOriginDataIndex()};
 };
 
+#if 0
 // Note: To facilitate the inter-wave loop scheduler, we need to explicitly set the macro
 // CK_EXPERIMENTAL_INTER_WAVE_SCHEDULING=1 as a few intrinsics are not yet available in
 // the latest ROCm release. For unsupported compilers, inter-wave loop scheduler falls back to the
@@ -618,5 +640,6 @@ constexpr auto BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_Selector()
                                                                             KPack>{};
     }
 };
+#endif
 
 } // namespace ck
