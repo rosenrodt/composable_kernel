@@ -1022,7 +1022,8 @@ template <typename SrcData,
           typename DimAccessOrder,
           index_t SrcVectorDim,
           index_t SrcScalarPerVector,
-          index_t SrcScalarStrideInVector,
+          index_t SrcScalarStrideInVector, // ????
+          bool StaticBufferTupleOfVector = false,
           typename enable_if<SrcDesc::IsKnownAtCompileTime() && DstDesc::IsKnownAtCompileTime(),
                              bool>::type = false>
 struct ThreadwiseTensorSliceTransfer_v4
@@ -1078,7 +1079,8 @@ struct ThreadwiseTensorSliceTransfer_v4
         // SrcOriginToRefDisttance and DstOriginToRefDistance are known at compile-time
         constexpr auto src_ref_to_origin_disp_idx = to_multi_index(SrcRefToOriginDisplacement{});
         constexpr auto dst_origin_idx             = to_multi_index(DstOriginIdx{});
-
+        // src_ref_to_origin_disp_idx.foo(); // int
+        // SrcRefToOriginDisplacement{}.bar(); // integral constant
         // scalar per access of each dim
         constexpr auto src_scalar_per_access = generate_sequence_v2(
             [&](auto i) constexpr {
@@ -1145,9 +1147,52 @@ struct ThreadwiseTensorSliceTransfer_v4
                 src_desc, src_data_coord);
 
             // copy data from src_buf into src_tmp_vector
+#if 1
             src_tmp_vector.template AsType<src_vector_t>()(Number<0>{}) =
                 src_buf.template Get<src_vector_t>(src_data_coord.GetOffset(), is_src_valid);
+#else
+            if constexpr(SrcBuffer::GetAddressSpace() == AddressSpaceEnum::Lds)
+            {
+                src_tmp_vector.template AsType<src_vector_t>()(Number<0>{}) =
+                    src_buf.template Get<src_vector_t>(src_data_coord.GetOffset(), is_src_valid);
+            }
+            else if constexpr(SrcBuffer::GetAddressSpace() == AddressSpaceEnum::Vgpr)
+            {
+                // static_for<0, SrcScalarPerVector, 1>{}([&](auto i) {
+                //     constexpr index_t src_offset = src_desc.CalculateOffset(
+                //         src_ref_to_origin_disp_idx + data_to_origin_disp_idx + i * src_scalar_step_in_vector);
 
+                //     // apply type convert
+                //     src_tmp_vector.template AsType<SrcData>()(i) =
+                //         src_buf[Number<src_offset>{}];
+                // });
+                if constexpr(StaticBufferTupleOfVector)
+                {
+                    // constexpr auto offset_nd = SrcRefToOriginDisplacement{} + data_to_origin_disp_idx;
+                    // // offset_nd.foo();
+                    // constexpr auto offset = src_desc.CalculateOffset(offset_nd);
+                    // src_tmp_vector.template AsType<src_vector_t>()(Number<0>{}) =
+                    //     src_buf.template GetAsType<src_vector_t>(Number<offset>{});
+                    static_for<0, SrcScalarPerVector, 1>{}([&](auto i) {
+                        // constexpr auto src_offset_nd = src_ref_to_origin_disp_idx +
+                        //                                data_to_origin_disp_idx + i * src_scalar_step_in_vector;
+                        // constexpr auto src_offset = src_desc.CalculateOffset(src_offset_nd);
+                        constexpr auto src_offset = src_desc.CalculateOffset(SrcRefToOriginDisplacement{});
+
+                        // SrcData s = src_buf[Number<src_offset>{}];
+                        SrcData s = src_buf[Number<0>{}];
+                        // apply type convert
+                        src_tmp_vector.template AsType<SrcData>()(i) = s;
+                    });
+                }
+                else
+                {
+                    src_tmp_vector.template AsType<src_vector_t>()(Number<0>{}) =
+                        src_buf.template Get<src_vector_t>(src_data_coord.GetOffset(),
+                                                           is_src_valid);
+                }
+            }
+#endif
             // copy data from src_tmp_vector to dst_tmp_vector (data cast data from SrcData to
             // DstData)
             vector_type_maker_t<DstData, SrcScalarPerVector> dst_tmp_vector;
@@ -1182,6 +1227,109 @@ struct ThreadwiseTensorSliceTransfer_v4
 
     private:
     SrcCoord src_ref_coord_;
+};
+
+// Do NOT involve any tensor coordinates with StaticBuffer
+template <typename SrcData,
+          typename DstData,
+          typename SrcDesc,
+          typename DstDesc,
+          typename SliceLengths,
+          typename DimAccessOrder,
+          index_t DstVectorDim,
+          index_t DstScalarPerVector,
+        //   InMemoryDataOperationEnum DstInMemOp,
+        //   index_t DstScalarStrideInVector,
+          typename enable_if<SrcDesc::IsKnownAtCompileTime() && DstDesc::IsKnownAtCompileTime(), bool>::type = false>
+struct ThreadwiseTensorSliceTransfer_v1r3_Static
+{
+    static constexpr index_t nDim = SliceLengths::Size();
+
+    using Index = MultiIndex<nDim>;
+
+    __device__ constexpr ThreadwiseTensorSliceTransfer_v1r3()
+    {
+        static_assert(SrcDesc::IsKnownAtCompileTime(),
+                      "wrong! SrcDesc need to known at compile-time");
+        static_assert(SliceLengths::At(Number<DstVectorDim>{}) % DstScalarPerVector == 0,
+                      "wrong! Not divisible");
+    }
+
+    template <typename SrcSliceOriginIdx, typename DstSliceOriginIdx, typename SrcBuffer, typename DstBuffer>
+    __device__ void Run(const SrcDesc&,
+                        const SrcSliceOriginIdx&,
+                        const SrcBuffer& src_buf,
+                        const DstDesc& dst_desc,
+                        const DstSliceOriginIdx&
+                        DstBuffer& dst_buf)
+    {
+        static_assert(SrcDesc::IsKnownAtCompileTime(),
+                      "wrong! SrcDesc need to known at compile-time");
+
+        static_assert(is_known_at_compile_time<remove_cvref_t<SrcSliceOriginIdx>>::value,
+                      "wrong! SrcSliceOrigin need to known at compile-time");
+
+        static_assert(SrcBuffer::IsStaticBuffer(), "wrong! SrcBuffer need to be StaticBuffer");
+
+        // SrcDesc and src_slice_origin_idx are known at compile-time
+        constexpr auto src_desc             = remove_cvref_t<SrcDesc>{};
+        constexpr auto src_slice_origin_idx = to_multi_index(SrcSliceOriginIdx{});
+
+        // scalar per access on each dim
+        // TODO: don't use lambda_scalar_per_access
+        constexpr auto dst_scalar_per_access = generate_sequence(
+            detail::lambda_scalar_per_access<DstVectorDim, DstScalarPerVector>{}, Number<nDim>{});
+
+        constexpr auto dst_scalar_step_in_vector =
+            generate_sequence(detail::lambda_scalar_step_in_vector<DstVectorDim>{}, Number<nDim>{});
+
+        using SpaceFillingCurve = SpaceFillingCurve<SliceLengths,
+                                                    DimAccessOrder,
+                                                    remove_cv_t<decltype(dst_scalar_per_access)>>;
+
+        // TODO: Use SpaceFillingCurve::ScalarsPerAccess instread of DstScalarPerVector?
+        static_assert(DstScalarPerVector == SpaceFillingCurve::ScalarPerVector,
+                      "wrong!DstScalarPerVector != SpaceFillingCurve::ScalarPerVector");
+        typename vector_type_maker<DstData, DstScalarPerVector>::type dst_vector;
+        using dst_vector_t = typename vector_type_maker<DstData, DstScalarPerVector>::type::type;
+
+        constexpr auto num_access = SpaceFillingCurve::GetNumOfAccess();
+
+        static_for<0, num_access, 1>{}([&](auto idx_1d) {
+            constexpr auto idx_md = SpaceFillingCurve::GetIndex(idx_1d);
+
+            // copy data from src_buf into dst_vector
+            // TODO: It's a hack here to use \p dst_scalar_step_in_vector. Use SpaceFillingCurve?
+            static_for<0, DstScalarPerVector, 1>{}([&](auto i) {
+                constexpr index_t src_offset = src_desc.CalculateOffset(
+                    src_slice_origin_idx + idx_md + i * dst_scalar_step_in_vector);
+
+                SrcData v = src_buf[Number<src_offset>{}];
+
+                // apply type convert
+                dst_vector.template AsType<DstData>()(i) = type_convert<DstData>(v);
+            });
+
+            // copy data from dst_vector into dst_buf
+            static_for<0, DstScalarPerVector, 1>{}([&](auto i) {
+                constexpr index_t src_offset = src_desc.CalculateOffset(
+                    src_slice_origin_idx + idx_md + i * dst_scalar_step_in_vector);
+
+                SrcData v;
+
+                // apply type convert
+                dst_vector.template AsType<DstData>()(i) = type_convert<DstData>(v);
+            });
+
+            // dst_buf.template Update<DstInMemOp, dst_vector_t>(
+            //     dst_coord_.GetOffset(),
+            //     is_dst_valid,
+            //     dst_vector.template AsType<dst_vector_t>()[Number<0>{}]);
+
+        });
+
+    }
+
 };
 
 } // namespace ck

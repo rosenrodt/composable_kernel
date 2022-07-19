@@ -57,6 +57,7 @@ struct StaticBufferTupleOfVector
     : public StaticallyIndexedArray<vector_type<S, ScalarPerVector>, NumOfVector>
 {
     using V    = typename vector_type<S, ScalarPerVector>::type;
+    using type = S;
     using base = StaticallyIndexedArray<vector_type<S, ScalarPerVector>, NumOfVector>;
 
     static constexpr auto s_per_v   = Number<ScalarPerVector>{};
@@ -109,6 +110,23 @@ struct StaticBufferTupleOfVector
 
         return base::operator[](i_v).template AsType<X>()[i_x];
     }
+
+    // Get X
+    // i is offset of S, not X. i should be aligned to X
+    // template <typename X,
+    //           typename enable_if<has_same_scalar_type<S, X>::value, bool>::type = false>
+    // __host__ __device__ constexpr auto Get(index_t offset, bool) const
+    // {
+    //     constexpr auto s_per_x = Number<scalar_type<remove_cvref_t<X>>::vector_size>{};
+
+    //     static_assert(s_per_v % s_per_x == 0, "wrong! V must  one or multiple X");
+    //     assert(offset % s_per_x == 0);
+
+    //     const auto i_v = offset / s_per_v;
+    //     const auto i_x = (offset % s_per_v) / s_per_x;
+
+    //     return base::operator[](i_v).template AsType<X>()[i_x];
+    // }
 
     // Set X
     // i is offset of S, not X. i should be aligned to X

@@ -72,14 +72,14 @@ endif()
 message(STATUS "Build with HIP ${HIP_VERSION}")
 
 ## tidy
-include(EnableCompilerWarnings)
-set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
-if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
-    set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
-# Enable tidy on hip
-elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
-    set(CK_TIDY_ERRORS ALL)
-endif()
+# include(EnableCompilerWarnings)
+# set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
+# if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
+#     set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
+# # Enable tidy on hip
+# elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
+#     set(CK_TIDY_ERRORS ALL)
+# endif()
 
 
 include(ClangTidy)
@@ -176,7 +176,7 @@ enable_clang_tidy(
         ${CK_TIDY_CHECKS}
         ${CK_TIDY_ERRORS}
     HEADER_FILTER
-        "\.hpp$"
+        # "\.hpp$"
     EXTRA_ARGS
         -DCK_USE_CLANG_TIDY
 )

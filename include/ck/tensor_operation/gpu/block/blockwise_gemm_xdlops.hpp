@@ -31,8 +31,8 @@ constexpr LoopScheduler make_default_loop_scheduler()
 template <index_t BlockSize,
           typename FloatAB,
           typename FloatAcc,
-        //   typename AK0MK1BlockDesc, // could be thread desc
-        //   typename BK0NK1BlockDesc,
+          typename AK0MK1BlockDesc, // could be thread desc
+          typename BK0NK1BlockDesc,
           typename AMmaTileDesc,
           typename BMmaTileDesc,
           index_t MPerBlock,
@@ -60,10 +60,10 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     // static constexpr index_t KPerBlock =
     //     BK0NK1BlockDesc{}.GetLength(I0) * BK0NK1BlockDesc{}.GetLength(I2);
 
-    static constexpr index_t A_K0 = AMmaTileDesc{}.GetLength(I0);
-    static constexpr index_t B_K0 = BMmaTileDesc{}.GetLength(I0);
-    static constexpr index_t A_K1 = AMmaTileDesc{}.GetLength(I2);
-    static constexpr index_t B_K1 = BMmaTileDesc{}.GetLength(I2);
+    static constexpr index_t A_K0 = AK0MK1BlockDesc{}.GetLength(I0);
+    static constexpr index_t B_K0 = BK0NK1BlockDesc{}.GetLength(I0);
+    static constexpr index_t A_K1 = AK0MK1BlockDesc{}.GetLength(I2);
+    static constexpr index_t B_K1 = BK0NK1BlockDesc{}.GetLength(I2);
 
     static constexpr auto xdlops_gemm = XdlopsGemm<FloatAB, MPerXDL, NPerXDL, KPack>{};
 
@@ -72,6 +72,11 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
     static constexpr index_t MWaves = MPerBlock / (MRepeat * MPerXDL);
     static constexpr index_t NWaves = NPerBlock / (NRepeat * NPerXDL);
 
+    // StaticBuffer<AddressSpaceEnum::Vgpr,
+    //              FloatAcc,
+    //              MRepeat * NRepeat * xdlops_gemm.GetRegSizePerXdlops(),
+    //              true>
+    //     c_thread_buf_;
     StaticBufferTupleOfVector<AddressSpaceEnum::Vgpr,
                               FloatAcc,
                               MRepeat * NRepeat,
@@ -144,10 +149,14 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
         return make_tuple(c_thread_m, c_thread_n);
     }
 
-    __host__ __device__ BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1()
+    using Tuple4 = decltype(CalculateAThreadOriginDataIndex());
+
+    __host__ __device__ BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1(
+        Tuple4 a_origin = CalculateAThreadOriginDataIndex(),
+        Tuple4 b_origin = CalculateBThreadOriginDataIndex())
+        : a_thread_copy_(a_origin), b_thread_copy_(b_origin)
     {
-        static_assert(AMmaTileDesc::IsKnownAtCompileTime() &&
-                          BMmaTileDesc::IsKnownAtCompileTime(),
+        static_assert(AMmaTileDesc::IsKnownAtCompileTime() && BMmaTileDesc::IsKnownAtCompileTime(),
                       "wrong! Desc should be known at compile-time");
 
         static_assert(ThisThreadBlock::GetNumOfThread() == MWaves * NWaves * WaveSize,
@@ -155,6 +164,12 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
         static_assert(MPerBlock % (MPerXDL * MRepeat) == 0 && NPerBlock % (NPerXDL * NRepeat) == 0,
                       "wrong!");
+    }
+
+    __host__ __device__ BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1(
+        const BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1& other)
+        : a_thread_copy_(other.a_origin), b_thread_copy_(other.b_origin)
+    {
     }
 
     // transposed XDL output supporting C_xdl' = B_xdl' * A_xdl'
@@ -278,45 +293,6 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
             c_grid_desc_g_m0_n0_m1_n1_m2_n2);
     }
 
-    template <typename AK0MK1BlockDesc>
-    __host__ __device__ static constexpr auto MakeABlockDescriptor_M0_M1_M2_K(const AK0MK1BlockDesc&)
-    {
-        return transform_tensor_descriptor(
-            AK0MK1BlockDesc{},
-            make_tuple(
-                make_merge_transform_v3_division_mod(make_tuple(Number<A_K0>{}, Number<A_K1>{})),
-                make_unmerge_transform(
-                    make_tuple(Number<MRepeat>{}, Number<MWaves>{}, Number<MPerXDL>{}))),
-            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
-            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
-    }
-
-    template <typename AK0MK1BlockDesc>
-    __host__ __device__ static constexpr auto MakeAThreadDescriptor_M0_M1_M2_K(const AK0MK1BlockDesc&)
-    {
-        return transform_tensor_descriptor(
-            AK0MK1BlockDesc{},
-            make_tuple(
-                make_merge_transform_v3_division_mod(make_tuple(Number<A_K0>{}, Number<A_K1>{})),
-                make_unmerge_transform(
-                    make_tuple(Number<MRepeat>{}, Number<1>{}, Number<1>{}))),
-            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
-            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
-    }
-
-    template <typename BK0NK1BlockDesc>
-    __host__ __device__ static constexpr auto MakeBBlockDescriptor_N0_N1_N2_K(const BK0NK1BlockDesc&)
-    {
-        return transform_tensor_descriptor(
-            BK0NK1BlockDesc{},
-            make_tuple(
-                make_merge_transform_v3_division_mod(make_tuple(Number<B_K0>{}, Number<B_K1>{})),
-                make_unmerge_transform(
-                    make_tuple(Number<NRepeat>{}, Number<NWaves>{}, Number<NPerXDL>{}))),
-            make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
-            make_tuple(Sequence<3>{}, Sequence<0, 1, 2>{}));
-    }
-
     static constexpr AMmaTileDesc a_block_desc_m0_m1_m2_k;
     static constexpr BMmaTileDesc b_block_desc_n0_n1_n2_k;
 
@@ -408,8 +384,8 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                                          B_K1,
                                                          B_K1>;
 
-    AThreadCopy a_thread_copy_{CalculateAThreadOriginDataIndex()};
-    BThreadCopy b_thread_copy_{CalculateBThreadOriginDataIndex()};
+    AThreadCopy a_thread_copy_; // {CalculateAThreadOriginDataIndex()};
+    BThreadCopy b_thread_copy_; // {CalculateBThreadOriginDataIndex()};
 };
 
 #if 0
