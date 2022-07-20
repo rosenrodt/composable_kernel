@@ -265,6 +265,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         return c_shuffle_block_desc_mblock_mperblock_nblock_nperblock;
     }
 
+    // TODO ANT: take B1 into account
     __host__ __device__ static constexpr index_t GetSharedMemoryNumberOfByte()
     {
         // LDS allocation for A and B: be careful of alignment
@@ -610,13 +611,14 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
 
         // A1 thread descriptor for iterating Acc thread descriptor
-        // n2 num_groups_per_blk, n3 num_input_blks, n4 group_size
-        constexpr index_t A1K0 = Gemm1KPerBlock / n4;
-        constexpr index_t A1K1 = n4;
+        // n2 num_groups_per_blk, n3 num_input_blks, n4 group_size // FIXME ANT: use block desc N3 instead of hardcoding
+        constexpr auto A1ThreadSlice = make_tuple(Number<Gemm1KPerBlock / n4 / 2>{}, Number<m0 * m1 * m2>{}, Number<n4>{});
+        constexpr index_t A1K0 = A1ThreadSlice[I0];
+        constexpr index_t A1K1 = A1ThreadSlice[I2];
         constexpr auto a1_thread_desc_k0_m_k1 = make_naive_tensor_descriptor(
-            make_tuple(Number<A1K0 / n3>{}, Number<m0 * m1 * m2>{}, Number<n4>{}),
-            make_tuple(Number<m0 * m1 * m2 * n4>{}, Number<n4>{}, I1));
-
+            A1ThreadSlice,
+            make_tuple(A1ThreadSlice[I1] * A1ThreadSlice[I2], A1ThreadSlice[I2], I1));
+        // make_tuple(Number<A1K0>{}, Number<m0 * m1 * m2>{}, Number<n4>{}).foo(); // <8, 1, 4>
         // B1 matrix in LDS memory, dst of blockwise copy
         constexpr auto b1_block_desc_bk0_n_bk1 = GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
@@ -625,59 +627,15 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         // TODO ANT: real blockwise copy from c_block_desc to c_thread_desc
         // FIXME: this cannot copy from static_buffer to static_buffer because v3r1 uses integer offset
         // which is useless against static_buffer because it requires integral constant
-
-        // auto a1_blockwise_copy = ThreadwiseTensorSliceTransfer_v3r1<
-        //     Sequence<n0 * n1 * n2 * n3, m0 * m1 * m2, n4>, // ThreadSliceLengths
-        //     tensor_operation::element_wise::PassThrough,   // SrcElementwiseOperation
-        //     tensor_operation::element_wise::PassThrough,   // DstElementwiseOperation
-        //     InMemoryDataOperationEnum::Set,                // DstInMemOp
-        //     FloatGemmAcc,                                  // SrcData
-        //     FloatAB,                                       // DstData
-        //     decltype(a1_thread_desc_k0_m_k1),              // SrcDesc
-        //     decltype(a1_thread_desc_k0_m_k1),              // DstDesc
-        //     Sequence<1, 0, 2>,                             // SrcDimAccessOrder
-        //     Sequence<1, 0, 2>,                             // DstDimAccessOrder
-        //     2,                                             // SrcVectorDim
-        //     2,                                             // DstVectorDim
-        //     n4,                                            // SrcScalarPerVector
-        //     n4,                                            // DstScalarPerVector
-        //     1,                                             // SrcScalarStrideInVector
-        //     1,                                             // DstScalarStrideInVector
-        //     true,  // ThreadTransferSrcResetCoordinateAfterRun TODO ANT: check if false
-        //     true,  // ThreadTransferDstResetCoordinateAfterRun
-        //     NumGemmKPrefetchStage>(a1_thread_desc_k0_m_k1,
-        //                            make_multi_index(0, 0, 0),
-        //                            tensor_operation::element_wise::PassThrough{},
-        //                            a1_thread_desc_k0_m_k1,
-        //                            make_multi_index(0, 0, 0),
-        //                            tensor_operation::element_wise::PassThrough{});
         auto a1_blockwise_copy =
             ThreadwiseTensorSliceTransfer_v1r3_Static<FloatGemmAcc,
                                              FloatAB,
                                              decltype(acc_thread_desc_k0_m_k1),
                                              decltype(a1_thread_desc_k0_m_k1),
-                                             Sequence<Gemm1KPerBlock / n3 / n4, m0 * m1 * m2, n4>,
+                                             Sequence<A1K0, m0 * m1 * m2, A1K1>,
                                              Sequence<1, 0, 2>,
                                              2,
                                              n4>{};
-        // auto a1_blockwise_copy =
-        //     ThreadwiseTensorSliceTransfer_v6r1<FloatGemmAcc,
-        //                                        FloatAB,
-        //                                        decltype(acc_thread_desc_k0_m_k1),
-        //                                        decltype(a1_thread_desc_k0_m_k1),
-        //                                        tensor_operation::element_wise::PassThrough,
-        //                                        Sequence<Gemm1KPerBlock / n3 / n4, m0 * m1 * m2, n4>,
-        //                                        Sequence<1, 0, 2>,
-        //                                        2,
-        //                                        n4,
-        //                                        InMemoryDataOperationEnum::Set,
-        //                                        true, // SrcResetCoordinateAfterRun
-        //                                        true, // DstResetCoordinateAfterRun
-        //                                        true>(acc_thread_desc_k0_m_k1,
-        //                                              make_multi_index(0, 0, 0),
-        //                                              a1_thread_desc_k0_m_k1,
-        //                                              make_multi_index(0, 0, 0),
-        //                                              tensor_operation::element_wise::PassThrough{});
 
         // B1 matrix blockwise copy
         auto b1_blockwise_copy =
@@ -711,7 +669,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 tensor_operation::element_wise::PassThrough{});
 
         auto a1_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatAB>(
-            acc_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetElementSpaceSize());
+            a1_thread_desc_k0_m_k1.GetElementSpaceSize());
 
         // reuse LDS space for gemm0's b_block_buf
         auto b1_block_buf = make_dynamic_buffer<AddressSpaceEnum::Lds>(
@@ -765,7 +723,19 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                                                    blockwise_gemm,
                                                                    acc_thread_buf,
                                                                    num_k_block_main_loop);
-
+#if 0
+            if(hipThreadIdx_x == 0)
+                printf("gemm1_k_block_outer_index %d, num_gemm1_k_block_outer_loop %d\n",
+                       gemm1_k_block_outer_index,
+                       num_gemm1_k_block_outer_loop);
+#endif
+#if 0
+            if (hipThreadIdx_x % 32 < 4) {
+                static_for<0, acc_thread_buf.Size(), 1>{}([&](auto I) {
+                    printf("bid %zd tid %zd, acc[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, acc_thread_buf[I]);
+                });
+            }
+#endif
             // gemm1
             // TODO ANT: take care cases where HasMainKBlockLoop is false
             // gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(
@@ -794,7 +764,13 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                       make_tuple(I0, I0, I0),
                                       a1_thread_buf
                                       );
-
+#if 0
+                if (hipThreadIdx_x % 32 < 4) {
+                    static_for<0, a1_thread_buf.Size(), 1>{}([&](auto I) {
+                        printf("bid %zd tid %zd, iter %d, a1[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, 0, I.value, (float)a1_thread_buf[I]);
+                    });
+                }
+#endif
                 b1_blockwise_copy.RunRead(b1_grid_desc_bk0_n_bk1, b1_grid_buf);
 
                 // TODO ANT: how to access static buffer while using tensor coordinate?
@@ -807,20 +783,31 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 c_thread_buf.Clear();
 
                 b1_blockwise_copy.RunWrite(b1_block_desc_bk0_n_bk1, b1_block_buf);
-
+#if 1
+                if (hipBlockIdx_x == 0)
+                {
+                    debug::print_shared(b1_block_buf.p_data_, index_t(b1_block_desc_bk0_n_bk1.GetElementSpaceSize()));
+                }
+#endif
                 // main body
-                if constexpr(HasMainKBlockLoop)
+                if constexpr(num_gemm1_k_block_inner_loop > 1)
                 {
 
                     static_for<1, num_gemm1_k_block_inner_loop, 1>{}([&](auto i) {
                         a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
-                                              make_tuple(Number<i * A1K0 / n4>{}, I0, I0),
+                                              make_tuple(Number<i * A1K0>{}, I0, I0),
                                               acc_thread_buf,
                                               a1_thread_desc_k0_m_k1,
                                               make_tuple(I0, I0, I0),
                                               a1_thread_buf
                                               );
-
+#if 0
+                        if (hipThreadIdx_x % 32 < 4) {
+                            static_for<0, a1_thread_buf.Size(), 1>{}([&](auto I) {
+                                printf("bid %zd tid %zd, iter %d, a1[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value, I.value, (float)a1_thread_buf[I]);
+                            });
+                        }
+#endif
                         b1_blockwise_copy.RunRead(b1_grid_desc_bk0_n_bk1, b1_grid_buf);
 
                         block_sync_lds();
@@ -845,6 +832,13 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 }
             } // end gemm1
 
+#if 0
+            if (hipThreadIdx_x % 32 < 4) {
+                static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
+                    printf("bid %zd tid %zd, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, c_thread_buf[I]);
+                });
+            }
+#endif
             a_blockwise_copy.MoveSrcSliceWindow(a_grid_desc_ak0_m_ak1, a_block_reset_copy_step); // rewind K
             b_blockwise_copy.MoveSrcSliceWindow(b_grid_desc_bk0_n_bk1, b_block_reset_copy_step); // rewind K and step N
             // don't need to rewind b1

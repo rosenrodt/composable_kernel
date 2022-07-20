@@ -221,8 +221,9 @@ int main(int argc, char* argv[])
         b1_n_o.GenerateTensorValue(GeneratorTensor_3<B1DataType>{-0.5, 0.5});
         break;
     default:
-        a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
-        b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
+        a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_1<B0DataType>{1});
+        // b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
         b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
     }
 
@@ -300,6 +301,10 @@ int main(int argc, char* argv[])
 
         LogRangeAsType<float>(std::cout << "a_m_k: ", a_m_k.mData, ",") << std::endl;
         LogRangeAsType<float>(std::cout << "b0_k_n : ", b0_k_n.mData, ",") << std::endl;
+
+        std::cout << "b0_k_n(0, 0) = " << (float)b0_k_n(0, 0) << ", b0_k_n(1, 0) = " << (float)b0_k_n(1, 0)
+                  << ", b0_k_n(0, 1) = " << (float)b0_k_n(0, 1) << ", b0_k_n(1, 1) = " << (float)b0_k_n(1, 1)
+                  << std::endl;
 
         return ck::utils::check_err(c_m_o_device_result.mData, c_m_o_host_result.mData) ? 0 : 1;
     }

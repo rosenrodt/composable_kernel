@@ -324,7 +324,20 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                    b_thread_desc_,
                                    make_tuple(I0, I0, I0, I0),
                                    b_thread_buf);
-
+#if 0
+                if (!TransposeC && hipThreadIdx_x % 32 < 4) {
+                    printf("bid %zd tid %zd, mma tile %d %d, a[0:3] = %f, %f, %f, %f, b[0:3] = %f, %f, %f, %f\n",
+                        hipBlockIdx_x, hipThreadIdx_x, m0.value, n0.value,
+                        (float)a_thread_buf[Number<0>{}],
+                        (float)a_thread_buf[Number<1>{}],
+                        (float)a_thread_buf[Number<2>{}],
+                        (float)a_thread_buf[Number<3>{}],
+                        (float)b_thread_buf[Number<0>{}],
+                        (float)b_thread_buf[Number<1>{}],
+                        (float)b_thread_buf[Number<2>{}],
+                        (float)b_thread_buf[Number<3>{}]);
+                }
+#endif
                 static_for<0, KPerThread, KPack>{}([&](auto k) {
                     vector_type<FloatAB, KPack> a_thread_vec;
                     vector_type<FloatAB, KPack> b_thread_vec;
