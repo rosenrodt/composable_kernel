@@ -320,11 +320,11 @@ struct DeviceGemmGemm_Xdl_CShuffle : public BaseOperator // TODO ANT: inherit fr
         // not pad N or K
         assert(KRaw % B1K1 == 0);
 
-        const auto BK0 = KRaw / B1K1;
+        const auto B1K0 = KRaw / B1K1;
 
         const auto b1_grid_desc_bk0_n_bk1 =
             transform_tensor_descriptor(b1_grid_desc_nraw_kraw,
-                                        make_tuple(make_unmerge_transform(make_tuple(BK0, BK1)),
+                                        make_tuple(make_unmerge_transform(make_tuple(B1K0, B1K1)),
                                                    make_pass_through_transform(NRaw)),
                                         make_tuple(Sequence<1>{}, Sequence<0>{}),
                                         make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
@@ -478,7 +478,7 @@ struct DeviceGemmGemm_Xdl_CShuffle : public BaseOperator // TODO ANT: inherit fr
               p_c_grid_{p_c_grid},
               a_grid_desc_ak0_m_ak1_{DeviceOp::MakeAGridDescriptor_AK0_M_AK1(MRaw, KRaw, StrideA)},
               b_grid_desc_bk0_n_bk1_{DeviceOp::MakeBGridDescriptor_BK0_N_BK1(KRaw, NRaw, StrideB)},
-              b1_grid_desc_bk0_n_bk1_{DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(NRaw, Gemm1NRaw, StrideB)},
+              b1_grid_desc_bk0_n_bk1_{DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(NRaw, Gemm1NRaw, StrideB1)},
               c_grid_desc_m_n_{DeviceOp::MakeCGridDescriptor_M_N(MRaw, Gemm1NRaw, StrideC)},
               c_grid_desc_mblock_mperblock_nblock_nperblock_{},
               block_2_ctile_map_{GridwiseGemm::MakeDefaultBlock2CTileMap(c_grid_desc_m_n_)},
