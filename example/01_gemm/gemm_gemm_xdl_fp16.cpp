@@ -234,6 +234,7 @@ int main(int argc, char* argv[])
 
     a_m_k_device_buf.ToDevice(a_m_k.mData.data());
     b0_k_n_device_buf.ToDevice(b0_k_n.mData.data());
+    b1_n_o_device_buf.ToDevice(b1_n_o.mData.data());
 
     auto a_element_op = AElementOp{};
     auto b_element_op = BElementOp{};
