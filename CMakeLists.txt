@@ -8,7 +8,7 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 enable_testing()
 
 set(ROCM_SYMLINK_LIBS OFF)
-find_package(ROCM 0.8 REQUIRED PATHS /opt/rocm)
+find_package(ROCM REQUIRED PATHS /opt/rocm)
 
 include(ROCMInstallTargets)
 include(ROCMPackageConfigHelpers)
@@ -72,14 +72,14 @@ endif()
 message(STATUS "Build with HIP ${HIP_VERSION}")
 
 ## tidy
-include(EnableCompilerWarnings)
-set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
-if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
-    set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
-# Enable tidy on hip
-elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
-    set(CK_TIDY_ERRORS ALL)
-endif()
+# include(EnableCompilerWarnings)
+# set(CK_TIDY_ERRORS ERRORS * -readability-inconsistent-declaration-parameter-name)
+# if(CMAKE_CXX_COMPILER MATCHES ".*hcc" OR CMAKE_CXX_COMPILER MATCHES ".*clang\\+\\+")
+#     set(CK_TIDY_CHECKS -modernize-use-override -readability-non-const-parameter)
+# # Enable tidy on hip
+# elseif(CK_BACKEND STREQUAL "HIP" OR CK_BACKEND STREQUAL "HIPNOGPU")
+#     set(CK_TIDY_ERRORS ALL)
+# endif()
 
 
 include(ClangTidy)
@@ -176,7 +176,7 @@ enable_clang_tidy(
         ${CK_TIDY_CHECKS}
         ${CK_TIDY_ERRORS}
     HEADER_FILTER
-        "\.hpp$"
+        # "\.hpp$"
     EXTRA_ARGS
         -DCK_USE_CLANG_TIDY
 )
@@ -222,11 +222,11 @@ include_directories(BEFORE
 )
 
 
-SET(BUILD_DEV ON CACHE BOOL "BUILD_DEV")
-if(BUILD_DEV)
-    add_compile_options(-Werror)
-    add_compile_options(-Weverything)
-endif()
+# SET(BUILD_DEV ON CACHE BOOL "BUILD_DEV")
+# if(BUILD_DEV)
+#     add_compile_options(-Werror)
+#     add_compile_options(-Weverything)
+# endif()
 message("CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -C ${CMAKE_CFG_INTDIR})

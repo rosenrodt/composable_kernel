@@ -54,17 +54,68 @@ using CElementOp = PassThrough;
 
 static constexpr auto GemmDefault = ck::tensor_operation::device::GemmSpecialization::Default;
 
-// clang-format off
-using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShuffle
-//######| ALayout| BLayout| CLayout|     AData|     BData|     CData|     AccData|         CShuffle|           A|           B|           C|           GEMM| NumGemmK| Block|  MPer|  NPer|  KPer| AK1| BK1| MPer| NPer| MXdl| NXdl|  ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockTransfer| ABlockLds|  BBlockTransfer| BBlockTransfer| BBlockTransfer| BlockTransfer| BBlockTransfer| BBlockTransfer| BBlockLds|    CShuffle|    CShuffle| CBlockTransferClusterLengths|  CBlockTransfer|
-//######|        |        |        |      Type|      Type|      Type|        Type|         DataType| Elementwise| Elementwise| Elementwise| Spacialization| Prefetch|  Size| Block| Block| Block|    |    |  XDL|  XDL|  Per|  Per|   ThreadCluster|  ThreadCluster| SrcAccessOrder|   SrcVectorDim|      SrcScalar|      DstScalar| AddExtraM|   ThreadCluster|  ThreadCluster| SrcAccessOrder|  SrcVectorDim|      SrcScalar|      DstScalar| AddExtraN| MXdlPerWave| NXdlPerWave|         _MBlock_MWaveMPerXdl| ScalarPerVector|
-//######|        |        |        |          |          |          |            |                 |   Operation|   Operation|   Operation|               |    Stage|      |      |      |      |    |    |     |     | Wave| Wave| Lengths_K0_M_K1|   ArrangeOrder|               |               |      PerVector|   PerVector_K1|          | Lengths_K0_N_K1|   ArrangeOrder|               |              |      PerVector|   PerVector_K1|          |  PerShuffle|  PerShuffle|         _NBlock_NWaveNPerXdl|   _NWaveNPerXdl|
-//######|        |        |        |          |          |          |            |                 |            |            |            |               |         |      |      |      |      |    |    |     |     |     |     |                |               |               |               |               |               |          |                |               |               |              |               |               |          |            |            |                             |                |
-        < ALayout,B0Layout, CLayout, ADataType,B0DataType, CDataType, AccDataType, CShuffleDataType,  AElementOp,  BElementOp,  CElementOp,    GemmDefault,        1,   256,   256,   128,    32,   8,   8,   32,   32,    4,    2,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,              8,              8,         1,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,             2,              8,              8,         1,           1,           1,               S<1, 32, 1, 8>,               8>;
-// clang-format on
+using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShuffle<
+    ALayout,
+    B0Layout,
+    B1Layout,
+    CLayout,
+    ADataType,
+    B0DataType,
+    CDataType,
+    AccDataType,
+    CShuffleDataType,
+    AElementOp,
+    BElementOp,
+    CElementOp,
+    GemmDefault,
+    1,
+    256,
+    128,         // MPerBlock
+    128,         // NPerBlock
+    32,          // KPerBlock
+    64,          // Gemm1NPerBlock
+    32,          // Gemm1KPerBlock
+    8,           // AK1
+    8,           // BK1
+    2,           // B1K1
+    32,          // MPerXDL
+    32,          // NPerXDL
+    1,           // MXdlPerWave
+    4,           // NXdlPerWave
+    2,           // Gemm1NXdlPerWave
+    S<4, 64, 1>, // ABlockTransfer
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    8,
+    8,
+    true,
+    S<4, 64, 1>, // BBlockTransfer
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    8,
+    8,
+    true,
+    S<16, 16, 1>, // B1BlockTransfer
+    S<0, 2, 1>,
+    S<0, 2, 1>,
+    1,
+    4,
+    2,
+    false,
+    1,              // CShuffleMXdlPerWavePerShuffle
+    2,              // CShuffleNXdlPerWavePerShuffle
+    S<1, 32, 1, 8>, // CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock
+    8>;             // CShuffleBlockTransferScalarPerVector_NPerBlock
 
-using ReferenceGemm0Instance = ck::tensor_operation::host::
-    ReferenceGemm<ADataType, B0DataType, AccDataType, AccDataType, AElementOp, BElementOp, CElementOp>;
+using ReferenceGemm0Instance = ck::tensor_operation::host::ReferenceGemm<ADataType,
+                                                                         B0DataType,
+                                                                         AccDataType,
+                                                                         AccDataType,
+                                                                         AElementOp,
+                                                                         BElementOp,
+                                                                         CElementOp>;
 using ReferenceGemm1Instance = ck::tensor_operation::host::
     ReferenceGemm<AccDataType, B1DataType, CDataType, AccDataType, AElementOp, BElementOp, CElementOp>;
 
@@ -86,14 +137,14 @@ int main(int argc, char* argv[])
     // ck::index_t StrideB1 = 1024;
     // ck::index_t StrideC = 1024;
 
-    ck::index_t M = 256;
-    ck::index_t N = 256;
+    ck::index_t M = 128;
+    ck::index_t N = 128;
     ck::index_t K = 32;
-    ck::index_t O = 256;
-    ck::index_t StrideA = 256;
-    ck::index_t StrideB0 = 256;
-    ck::index_t StrideB1 = 256;
-    ck::index_t StrideC = 256;
+    ck::index_t O = 128;
+    ck::index_t StrideA = 32;
+    ck::index_t StrideB0 = 32;
+    ck::index_t StrideB1 = 128;
+    ck::index_t StrideC = 128;
 
     if(argc == 1)
     {
@@ -171,7 +222,7 @@ int main(int argc, char* argv[])
         break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
-        b0_k_n.GenerateTensorValue(GeneratorTensor_Diagonal<B0DataType>{});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
         b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
     }
 
@@ -192,12 +243,15 @@ int main(int argc, char* argv[])
     auto invoker  = gemm.MakeInvoker();
     auto argument = gemm.MakeArgument(static_cast<ADataType*>(a_m_k_device_buf.GetDeviceBuffer()),
                                       static_cast<B0DataType*>(b0_k_n_device_buf.GetDeviceBuffer()),
+                                      static_cast<B1DataType*>(b1_n_o_device_buf.GetDeviceBuffer()),
                                       static_cast<CDataType*>(c_m_o_device_buf.GetDeviceBuffer()),
                                       M,
                                       N,
                                       K,
+                                      O,
                                       StrideA,
                                       StrideB0,
+                                      StrideB1,
                                       StrideC,
                                       a_element_op,
                                       b_element_op,
@@ -243,6 +297,9 @@ int main(int argc, char* argv[])
             a1_m_n, b1_n_o, c_m_o_host_result, a_element_op, b_element_op, c_element_op);
 
         ref_gemm1_invoker.Run(ref_gemm1_argument);
+
+        LogRangeAsType<float>(std::cout << "a_m_k: ", a_m_k.mData, ",") << std::endl;
+        LogRangeAsType<float>(std::cout << "b0_k_n : ", b0_k_n.mData, ",") << std::endl;
 
         return ck::utils::check_err(c_m_o_device_result.mData, c_m_o_host_result.mData) ? 0 : 1;
     }
