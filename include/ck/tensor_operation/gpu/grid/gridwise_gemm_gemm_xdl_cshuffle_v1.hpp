@@ -209,7 +209,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     {
         constexpr index_t Gemm1NWaves = Gemm1NPerBlock / (Gemm1NXdlPerWave * NPerXdl);
 
-        return MakeGemmMmaTileDescriptor_MN0_MN1_MN2_K<Gemm1NXdlPerWave, Gemm1NWaves, MPerXdl>(
+        return MakeGemmMmaTileDescriptor_MN0_MN1_MN2_K<Gemm1NXdlPerWave, Gemm1NWaves, NPerXdl>(
             BBlockDesc_BK0_N_BK1{});
     }
 
