@@ -271,15 +271,22 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         // LDS allocation for A and B: be careful of alignment
         constexpr auto a_block_desc_ak0_m_ak1 = GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
         constexpr auto b_block_desc_bk0_n_bk1 = GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
+        constexpr auto b1_block_desc_bk0_n_bk1 = GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
         // lds max alignment
-        constexpr auto max_lds_align = math::lcm(AK1, BK1);
+        constexpr auto max_lds_align = math::lcm(math::lcm(AK1, BK1), B1K1);
 
         constexpr auto a_block_space_size_aligned = math::integer_least_multiple(
             a_block_desc_ak0_m_ak1.GetElementSpaceSize(), max_lds_align);
 
-        constexpr auto b_block_space_size_aligned = math::integer_least_multiple(
+        constexpr auto b0_block_space_size_aligned = math::integer_least_multiple(
             b_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
+
+        constexpr auto b1_block_space_size_aligned = math::integer_least_multiple(
+            b1_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
+
+        constexpr auto b_block_space_size_aligned =
+            math::max(b0_block_space_size_aligned.value, b1_block_space_size_aligned.value);
 
         // LDS allocation for C shuffle in LDS
         constexpr auto c_shuffle_block_desc_mblock_mperblock_nblock_nperblock =
@@ -288,8 +295,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         constexpr auto c_block_size =
             c_shuffle_block_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize();
 
-        return math::max((a_block_space_size_aligned + b_block_space_size_aligned) *
-                             sizeof(FloatAB),
+        return math::max((a_block_space_size_aligned + b_block_space_size_aligned) * sizeof(FloatAB),
                          c_block_size * sizeof(FloatCShuffle));
     }
 
