@@ -709,6 +709,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const index_t num_gemm1_k_block_outer_loop = b_grid_desc_bk0_n_bk1.GetLength(I1) / NPerBlock;
         constexpr index_t num_gemm1_k_block_inner_loop = NPerBlock / Gemm1KPerBlock;
 
+        // Initialize C
+        c_thread_buf.Clear();
+
         index_t gemm1_k_block_outer_index = 0;
         // j loop
         do
@@ -743,33 +746,16 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             }
 #endif
             // gemm1
-            // TODO ANT: take care cases where HasMainKBlockLoop is false
-            // gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(
-            //     a1_thread_desc_k0_m_k1,
-            //     a1_thread_desc_k0_m_k1,
-            //     a1_blockwise_copy,
-            //     acc_thread_buf,
-            //     a1_thread_buf,
-            //     a1_block_slice_copy_step,
-            //     b1_grid_desc_bk0_n_bk1,
-            //     b1_block_desc_bk0_n_bk1,
-            //     b1_blockwise_copy,
-            //     b1_grid_buf,
-            //     b1_block_buf,
-            //     b1_block_slice_copy_step,
-            //     gemm1_blockwise_gemm,
-            //     c_thread_buf,
-            //     num_gemm1_k_block_inner_loop);
             {
                 // preload data into LDS
-
-                a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
-                                      make_tuple(I0, I0, I0),
-                                      acc_thread_buf,
-                                      a1_thread_desc_k0_m_k1,
-                                      make_tuple(I0, I0, I0),
-                                      a1_thread_buf
-                                      );
+                // FIXME ANT: do not need a1 copy here?
+                // a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
+                //                       make_tuple(I0, I0, I0),
+                //                       acc_thread_buf,
+                //                       a1_thread_desc_k0_m_k1,
+                //                       make_tuple(I0, I0, I0),
+                //                       a1_thread_buf
+                //                       );
 #if 0
                 if (hipThreadIdx_x % 32 < 4) {
                     static_for<0, a1_thread_buf.Size(), 1>{}([&](auto I) {
@@ -785,8 +771,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 b1_blockwise_copy.MoveSrcSliceWindow(b1_grid_desc_bk0_n_bk1,
                                                      b1_block_slice_copy_step);
 
-                // Initialize C
-                c_thread_buf.Clear();
 
                 b1_blockwise_copy.RunWrite(b1_block_desc_bk0_n_bk1, b1_block_buf);
 #if 1
@@ -801,7 +785,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
 
                     static_for<1, num_gemm1_k_block_inner_loop, 1>{}([&](auto i) {
                         a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
-                                              make_tuple(Number<i * A1K0>{}, I0, I0),
+                                              make_tuple(Number<(i - 1) * A1K0>{}, I0, I0),
                                               acc_thread_buf,
                                               a1_thread_desc_k0_m_k1,
                                               make_tuple(I0, I0, I0),
