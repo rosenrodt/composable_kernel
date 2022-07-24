@@ -208,7 +208,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
     MakeGemm1BMmaTileDescriptor_N0_N1_N2_K(const BBlockDesc_BK0_N_BK1&)
     {
         constexpr index_t Gemm1NWaves = Gemm1NPerBlock / (Gemm1NXdlPerWave * NPerXdl);
-
+        // Sequence<Gemm1NXdlPerWave, Gemm1NWaves, NPerXdl>{}.foo(); // <2, 1, 32>
         return MakeGemmMmaTileDescriptor_MN0_MN1_MN2_K<Gemm1NXdlPerWave, Gemm1NWaves, NPerXdl>(
             BBlockDesc_BK0_N_BK1{});
     }
@@ -702,7 +702,10 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             MXdlPerWave,
             Gemm1NXdlPerWave,
             Gemm1KPack,
-            false>{make_tuple(0, 0, 0, 0)}; // TransposeC
+            false>{
+                make_tuple(0, 0, 0, 0)
+                // TODO ANT: add B MMA tile thread origin
+                }; // TransposeC
 
         auto c_thread_buf = gemm1_blockwise_gemm.GetCThreadBuffer();
 
@@ -739,7 +742,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                        num_gemm1_k_block_outer_loop);
 #endif
 #if 0
-            if (hipThreadIdx_x % 32 < 4) {
+            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
                 static_for<0, acc_thread_buf.Size(), 1>{}([&](auto I) {
                     printf("bid %zd tid %zd, acc[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, acc_thread_buf[I]);
                 });
@@ -773,7 +776,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
 
 
                 b1_blockwise_copy.RunWrite(b1_block_desc_bk0_n_bk1, b1_block_buf);
-#if 1
+#if 0
                 if (hipBlockIdx_x == 0)
                 {
                     debug::print_shared(b1_block_buf.p_data_, index_t(b1_block_desc_bk0_n_bk1.GetElementSpaceSize()));
@@ -792,7 +795,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                                               a1_thread_buf
                                               );
 #if 0
-                        if (hipThreadIdx_x % 32 < 4) {
+                        if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
                             static_for<0, a1_thread_buf.Size(), 1>{}([&](auto I) {
                                 printf("bid %zd tid %zd, iter %d, a1[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value, I.value, (float)a1_thread_buf[I]);
                             });
@@ -803,7 +806,13 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                         block_sync_lds();
 
                         gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
-
+#if 0
+                        if (hipThreadIdx_x % 32 < 8) {
+                            static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
+                                printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value - 1, I.value, c_thread_buf[I]);
+                            });
+                        }
+#endif
                         block_sync_lds();
 
                         // a1_blockwise_copy.MoveSrcSliceWindow(acc_thread_desc_k0_m_k1,
@@ -821,14 +830,14 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                     gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
                 }
             } // end gemm1
-
-#if 0
-            if (hipThreadIdx_x % 32 < 4) {
+#if 1
+            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
                 static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
-                    printf("bid %zd tid %zd, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, c_thread_buf[I]);
+                    printf("bid %zd tid %zd, iter final, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, c_thread_buf[I]);
                 });
             }
 #endif
+
             a_blockwise_copy.MoveSrcSliceWindow(a_grid_desc_ak0_m_ak1, a_block_reset_copy_step); // rewind K
             b_blockwise_copy.MoveSrcSliceWindow(b_grid_desc_bk0_n_bk1, b_block_reset_copy_step); // rewind K and step N
             // don't need to rewind b1
@@ -836,7 +845,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         } while (++gemm1_k_block_outer_index < num_gemm1_k_block_outer_loop); // end j loop
 
         // shuffle C and write out
-#if 1
         {
             static_assert(MXdlPerWave % CShuffleMXdlPerWavePerShuffle == 0 &&
                               Gemm1NXdlPerWave % CShuffleNXdlPerWavePerShuffle == 0,
@@ -1032,91 +1040,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 }
             });
         }
-#endif
-        // output: register to global memory
-#if 0
-        {
-            constexpr auto c_thread_desc_m0_n0_m1_n1_m2_m3_m4_n2 =
-                gemm1_blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_M3_M4_N2();
-
-            constexpr auto c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2 =
-                gemm1_blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_M3_M4_N2();
-
-            // constexpr auto c_grid_desc_m0_n0_m1_n1_m2_m3_m4_n2 = transform_tensor_descriptor(
-            //     c_grid_desc_mblock_mperblock_nblock_nperblock
-            //     make_tuple(make_unmerge_transform(make_tuple(MWaves)))
-            //     );
-
-            constexpr auto M0 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I0);
-            constexpr auto N0 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I1);
-            constexpr auto M1 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I2);
-            constexpr auto N1 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I3);
-            constexpr auto M2 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I4);
-            constexpr auto M3 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I5);
-            constexpr auto M4 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I6);
-            constexpr auto N2 = c_block_desc_m0_n0_m1_n1_m2_m3_m4_n2.GetLength(I7);
-
-            // calculate origin of thread output tensor on global memory
-            //     blockwise GEMM c matrix starting index
-            const auto c_thread_mtx_on_block =
-                gemm1_blockwise_gemm.CalculateCThreadOriginDataIndex(I0, I0, I0, I0);
-
-            const index_t m_thread_data_on_grid =
-                m_block_data_idx_on_grid + c_thread_mtx_on_block[I0];
-
-            const index_t n_thread_data_on_grid =
-                n_block_data_idx_on_grid + c_thread_mtx_on_block[I1];
-
-            const auto m_thread_data_on_grid_to_m0_m1_m2_m3_m4_adaptor =
-                make_single_stage_tensor_adaptor(
-                    make_tuple(make_merge_transform(make_tuple(M0, M1, M2, M3, M4))),
-                    make_tuple(Sequence<0, 1, 2, 3, 4>{}),
-                    make_tuple(Sequence<0>{}));
-
-            const auto m_thread_data_on_grid_idx =
-                m_thread_data_on_grid_to_m0_m1_m2_m3_m4_adaptor.CalculateBottomIndex(
-                    make_multi_index(m_thread_data_on_grid));
-
-            const auto n_thread_data_on_grid_to_n0_n1_n2_adaptor = make_single_stage_tensor_adaptor(
-                make_tuple(make_merge_transform(make_tuple(N0, N1, N2))),
-                make_tuple(Sequence<0, 1, 2>{}),
-                make_tuple(Sequence<0>{}));
-
-            const auto n_thread_data_on_grid_idx =
-                n_thread_data_on_grid_to_n0_n1_n2_adaptor.CalculateBottomIndex(
-                    make_multi_index(n_thread_data_on_grid));
-
-            auto c_thread_copy =
-                ThreadwiseTensorSliceTransfer_v1r3<FloatGemmAcc,
-                                                   FloatC,
-                                                   decltype(c_thread_desc_m0_n0_m1_n1_m2_m3_m4_n2),
-                                                   decltype(c_grid_desc_m0_n0_m1_n1_m2_m3_m4_n2),
-                                                   CElementwiseOperation,
-                                                   Sequence<M0, N0, I1, I1, M2, I1, M4, I1>,
-                                                   CThreadTransferSrcDstAccessOrder,
-                                                   CThreadTransferSrcDstVectorDim,
-                                                   CThreadTransferDstScalarPerVector,
-                                                   CGlobalMemoryDataOperation,
-                                                   1,
-                                                   true>{
-                    c_grid_desc_m0_n0_m1_n1_m2_m3_m4_n2,
-                    make_multi_index(m_thread_data_on_grid_idx[I0],
-                                     n_thread_data_on_grid_idx[I0],
-                                     m_thread_data_on_grid_idx[I1],
-                                     n_thread_data_on_grid_idx[I1],
-                                     m_thread_data_on_grid_idx[I2],
-                                     m_thread_data_on_grid_idx[I3],
-                                     m_thread_data_on_grid_idx[I4],
-                                     n_thread_data_on_grid_idx[I2]),
-                    c_element_op};
-
-            c_thread_copy.Run(c_thread_desc_m0_n0_m1_n1_m2_m3_m4_n2,
-                              make_tuple(I0, I0, I0, I0, I0, I0, I0, I0),
-                              c_thread_buf,
-                              c_grid_desc_m0_n0_m1_n1_m2_m3_m4_n2,
-                              c_grid_buf);
-        }
-#endif
     }
 };
 

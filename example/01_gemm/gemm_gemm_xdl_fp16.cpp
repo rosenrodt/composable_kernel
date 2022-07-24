@@ -211,20 +211,24 @@ int main(int argc, char* argv[])
     {
     case 0: break;
     case 1:
+        // Test gemm 0
         a_m_k.GenerateTensorValue(GeneratorTensor_2<ADataType>{-5, 5});
         b0_k_n.GenerateTensorValue(GeneratorTensor_2<B0DataType>{-5, 5});
-        b1_n_o.GenerateTensorValue(GeneratorTensor_2<B1DataType>{-5, 5});
+        // b1_n_o.GenerateTensorValue(GeneratorTensor_2<B1DataType>{-5, 5});
+        b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
         break;
     case 2:
-        a_m_k.GenerateTensorValue(GeneratorTensor_3<ADataType>{0.0, 1.0});
-        b0_k_n.GenerateTensorValue(GeneratorTensor_3<B0DataType>{0.0, 1.0});
-        b1_n_o.GenerateTensorValue(GeneratorTensor_3<B1DataType>{-0.5, 0.5});
+        // Test gemm 1
+        a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_1<B0DataType>{1});
+        b1_n_o.GenerateTensorValue(GeneratorTensor_2<B1DataType>{-5, 5});
         break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
-        b0_k_n.GenerateTensorValue(GeneratorTensor_1<B0DataType>{1});
-        // b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
+        // b0_k_n.GenerateTensorValue(GeneratorTensor_1<B0DataType>{1});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
         b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
+        // b1_n_o.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
     }
 
     DeviceMem a_m_k_device_buf(sizeof(ADataType) * a_m_k.mDesc.GetElementSpace());
@@ -302,6 +306,8 @@ int main(int argc, char* argv[])
 
         LogRangeAsType<float>(std::cout << "a_m_k: ", a_m_k.mData, ",") << std::endl;
         LogRangeAsType<float>(std::cout << "b0_k_n : ", b0_k_n.mData, ",") << std::endl;
+        LogRangeAsType<float>(std::cout << "b1_n_o : ", b1_n_o.mData, ",") << std::endl;
+        // LogRangeAsType<float>(std::cout << "c_m_o_device_result : ", c_m_o_device_result.mData, ",") << std::endl;
 
         std::cout << "b0_k_n(0, 0) = " << (float)b0_k_n(0, 0) << ", b0_k_n(1, 0) = " << (float)b0_k_n(1, 0)
                   << ", b0_k_n(0, 1) = " << (float)b0_k_n(0, 1) << ", b0_k_n(1, 1) = " << (float)b0_k_n(1, 1)
