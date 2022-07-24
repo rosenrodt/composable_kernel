@@ -156,6 +156,22 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
         Tuple4 b_origin = CalculateBThreadOriginDataIndex())
         : a_thread_copy_(a_origin), b_thread_copy_(b_origin)
     {
+#if 1
+        if(!TransposeC && hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8)
+        {
+            printf("bid %zd tid %zd, a_mma = %d, %d, %d, %d, b_mma = %d, %d, %d, %d\n",
+                   hipBlockIdx_x,
+                   hipThreadIdx_x,
+                   a_origin[Number<0>{}],
+                   a_origin[Number<1>{}],
+                   a_origin[Number<2>{}],
+                   a_origin[Number<3>{}],
+                   b_origin[Number<0>{}],
+                   b_origin[Number<1>{}],
+                   b_origin[Number<2>{}],
+                   b_origin[Number<3>{}]);
+        }
+#endif
         static_assert(AMmaTileDesc::IsKnownAtCompileTime() && BMmaTileDesc::IsKnownAtCompileTime(),
                       "wrong! Desc should be known at compile-time");
 
@@ -325,23 +341,41 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                    make_tuple(I0, I0, I0, I0),
                                    b_thread_buf);
 #if 0
-                if (!TransposeC && hipThreadIdx_x % 32 < 4) {
-                    printf("bid %zd tid %zd, mma tile %d %d, a[0:3] = %f, %f, %f, %f, b[0:3] = %f, %f, %f, %f\n",
+                if (!TransposeC && hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
+                    printf("bid %zd tid %zd, mma tile %d %d, a[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, b[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f\n",
                         hipBlockIdx_x, hipThreadIdx_x, m0.value, n0.value,
-                        (float)a_thread_buf[Number<0>{}],
-                        (float)a_thread_buf[Number<1>{}],
-                        (float)a_thread_buf[Number<2>{}],
-                        (float)a_thread_buf[Number<3>{}],
-                        (float)b_thread_buf[Number<0>{}],
-                        (float)b_thread_buf[Number<1>{}],
-                        (float)b_thread_buf[Number<2>{}],
-                        (float)b_thread_buf[Number<3>{}]);
+                        // (float)a_thread_buf[Number<0>{}],
+                        // (float)a_thread_buf[Number<1>{}],
+                        // (float)a_thread_buf[Number<2>{}],
+                        // (float)a_thread_buf[Number<3>{}],
+                        // (float)b_thread_buf[Number<0>{}],
+                        // (float)b_thread_buf[Number<1>{}],
+                        // (float)b_thread_buf[Number<2>{}],
+                        // (float)b_thread_buf[Number<3>{}]
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 0))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 1))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 2))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 3))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 4))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 5))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 6))>{}],
+                        (float)a_thread_buf[Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 7))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 0))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 1))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 2))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 3))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 4))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 5))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 6))>{}],
+                        (float)b_thread_buf[Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, /* k + */ 7))>{}]
+                        );
                 }
 #endif
                 static_for<0, KPerThread, KPack>{}([&](auto k) {
                     vector_type<FloatAB, KPack> a_thread_vec;
                     vector_type<FloatAB, KPack> b_thread_vec;
 
+                    // TODO ANT: add appropriate iteration delta
                     static_for<0, KPack, 1>{}([&](auto i) {
                         a_thread_vec.template AsType<FloatAB>()(i) = a_thread_buf
                             [Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, k + i))>{}];
