@@ -702,9 +702,10 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
             MXdlPerWave,
             Gemm1NXdlPerWave,
             Gemm1KPack,
-            false>{
+            false,
+            Gemm1KPack, // AMmaKStride
+            Gemm1KPack * XdlopsGemm<FloatAB, MPerXdl, NPerXdl, Gemm1KPack, false>{}.K0PerXdlops>{
                 make_tuple(0, 0, 0, 0)
-                // TODO ANT: add B MMA tile thread origin
                 }; // TransposeC
 
         auto c_thread_buf = gemm1_blockwise_gemm.GetCThreadBuffer();

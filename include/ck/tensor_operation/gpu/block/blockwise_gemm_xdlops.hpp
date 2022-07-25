@@ -43,7 +43,9 @@ template <index_t BlockSize,
           index_t MRepeat,
           index_t NRepeat,
           index_t KPack,
-          bool TransposeC = false>
+          bool TransposeC = false,
+          index_t AMmaKStride = KPack * XdlopsGemm<FloatAB, MPerXDL, NPerXDL, KPack, TransposeC>{}.K0PerXdlops,
+          index_t BMmaKStride = KPack * XdlopsGemm<FloatAB, MPerXDL, NPerXDL, KPack, TransposeC>{}.K0PerXdlops>
 struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 {
     static constexpr auto I0 = Number<0>{};
@@ -106,7 +108,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
         const auto xdlops_a_idx = xdlops_gemm.CalculateAThreadOriginDataIndex();
 
-        return make_tuple(0, waveId_m, xdlops_a_idx[I1], KPerThread * xdlops_a_idx[I0]);
+        return make_tuple(0, waveId_m, xdlops_a_idx[I1], KPack * xdlops_a_idx[I0]);
     }
 
     __device__ static auto CalculateBThreadOriginDataIndex()
@@ -117,7 +119,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
         const auto xdlops_b_idx = xdlops_gemm.CalculateBThreadOriginDataIndex();
 
-        return make_tuple(0, waveId_n, xdlops_b_idx[I1], KPerThread * xdlops_b_idx[I0]);
+        return make_tuple(0, waveId_n, xdlops_b_idx[I1], KPack * xdlops_b_idx[I0]);
     }
 
     template <index_t m0, index_t n0, index_t xdlops_i, index_t blk_i>
@@ -323,19 +325,21 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
         auto b_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatAB>(
             b_thread_desc_.GetElementSpaceSize());
 
+        // static_for<0, KPerBlock, KPack * xdlops_gemm.K0PerXdlops>{}([&](auto k) {
+        static_for<0, KPerThread / KPack, 1>{}([&](auto k) { // k=0,1,2 instead of k=kpack*[0, 1, 2]
         static_for<0, MRepeat, 1>{}([&](auto m0) {
-            // read A
+                // read A1 without stride
             a_thread_copy_.Run(a_block_desc_m0_m1_m2_k,
-                               make_tuple(m0, I0, I0, I0),
+                                   make_tuple(m0, I0, I0, Number<k * AMmaKStride>{}),
                                a_block_buf,
                                a_thread_desc_,
                                make_tuple(I0, I0, I0, I0),
                                a_thread_buf);
 
             static_for<0, NRepeat, 1>{}([&](auto n0) {
-                // read B
+                    // read B with stride
                 b_thread_copy_.Run(b_block_desc_n0_n1_n2_k,
-                                   make_tuple(n0, I0, I0, I0),
+                                       make_tuple(n0, I0, I0, Number<k * BMmaKStride>{}),
                                    b_block_buf,
                                    b_thread_desc_,
                                    make_tuple(I0, I0, I0, I0),
@@ -378,9 +382,9 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                     // TODO ANT: add appropriate iteration delta
                     static_for<0, KPack, 1>{}([&](auto i) {
                         a_thread_vec.template AsType<FloatAB>()(i) = a_thread_buf
-                            [Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, k + i))>{}];
+                            [Number<a_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, i))>{}];
                         b_thread_vec.template AsType<FloatAB>()(i) = b_thread_buf
-                            [Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, k + i))>{}];
+                            [Number<b_thread_desc_.CalculateOffset(make_tuple(0, 0, 0, i))>{}];
                     });
 
                     using mfma_input_type =
@@ -415,7 +419,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                                          FloatAB,
                                                          decltype(a_block_desc_m0_m1_m2_k),
                                                          decltype(a_thread_desc_),
-                                                         Sequence<1, 1, 1, KPerThread>,
+                                                         Sequence<1, 1, 1, KPack>,
                                                          Sequence<0, 1, 2, 3>,
                                                          3,
                                                          A_K1,
@@ -425,7 +429,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                                          FloatAB,
                                                          decltype(b_block_desc_n0_n1_n2_k),
                                                          decltype(b_thread_desc_),
-                                                         Sequence<1, 1, 1, KPerThread>,
+                                                         Sequence<1, 1, 1, KPack>,
                                                          Sequence<0, 1, 2, 3>,
                                                          3,
                                                          B_K1,
