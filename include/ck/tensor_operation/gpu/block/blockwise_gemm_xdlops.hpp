@@ -158,7 +158,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
         Tuple4 b_origin = CalculateBThreadOriginDataIndex())
         : a_thread_copy_(a_origin), b_thread_copy_(b_origin)
     {
-#if 1
+#if 0
         if(!TransposeC && hipThreadIdx_x % 32 < 8)
         {
             printf("bid %zd tid %zd, a_mma = %d, %d, %d, %d, b_mma = %d, %d, %d, %d\n",
@@ -344,7 +344,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                                        b_thread_desc_,
                                        make_tuple(I0, I0, I0, I0),
                                        b_thread_buf);
-#if 1
+#if 0
                 if (!TransposeC && hipThreadIdx_x % 32 < 8) {
                     printf("bid %zd tid %zd, mma tile %d %d %d, a[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, b[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f\n",
                         hipBlockIdx_x, hipThreadIdx_x, m0.value, n0.value, k.value,
