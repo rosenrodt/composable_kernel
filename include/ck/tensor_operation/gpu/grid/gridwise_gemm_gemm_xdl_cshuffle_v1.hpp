@@ -787,9 +787,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 if constexpr(num_gemm1_k_block_inner_loop > 1)
                 {
 
-                    static_for<1, num_gemm1_k_block_inner_loop, 1>{}([&](auto i) {
+                    static_for<0, num_gemm1_k_block_inner_loop - 1, 1>{}([&](auto i) {
                         a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
-                                              make_tuple(Number<(i - 1) * A1K0>{}, I0, I0),
+                                              make_tuple(Number<i * A1K0>{}, I0, I0),
                                               acc_thread_buf,
                                               a1_thread_desc_k0_m_k1,
                                               make_tuple(I0, I0, I0),
@@ -826,6 +826,12 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 }
                 // tail
                 {
+                    a1_blockwise_copy.Run(acc_thread_desc_k0_m_k1,
+                                          make_tuple(Number<(num_gemm1_k_block_inner_loop - 1) * A1K0>{}, I0, I0),
+                                          acc_thread_buf,
+                                          a1_thread_desc_k0_m_k1,
+                                          make_tuple(I0, I0, I0),
+                                          a1_thread_buf);
                     block_sync_lds();
 
                     gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
