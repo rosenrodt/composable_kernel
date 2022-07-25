@@ -799,7 +799,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                         block_sync_lds();
 
                         gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
-#if 1
+#if 0
                         if (hipThreadIdx_x % 32 < 8) {
                             static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
                                 printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value, I.value, c_thread_buf[I]);
@@ -829,7 +829,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                     gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
                 }
             } // end gemm1
-#if 1
+#if 0
             if (hipThreadIdx_x % 32 < 8) {
                 static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
                     printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, num_gemm1_k_block_inner_loop - 1, I.value, c_thread_buf[I]);
