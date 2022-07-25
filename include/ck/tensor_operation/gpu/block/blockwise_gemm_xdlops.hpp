@@ -159,7 +159,7 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
         : a_thread_copy_(a_origin), b_thread_copy_(b_origin)
     {
 #if 1
-        if(!TransposeC && hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8)
+        if(!TransposeC && hipThreadIdx_x % 32 < 8)
         {
             printf("bid %zd tid %zd, a_mma = %d, %d, %d, %d, b_mma = %d, %d, %d, %d\n",
                    hipBlockIdx_x,
@@ -327,27 +327,27 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
 
         // static_for<0, KPerBlock, KPack * xdlops_gemm.K0PerXdlops>{}([&](auto k) {
         static_for<0, KPerThread / KPack, 1>{}([&](auto k) { // k=0,1,2 instead of k=kpack*[0, 1, 2]
-        static_for<0, MRepeat, 1>{}([&](auto m0) {
+            static_for<0, MRepeat, 1>{}([&](auto m0) {
                 // read A1 without stride
-            a_thread_copy_.Run(a_block_desc_m0_m1_m2_k,
+                a_thread_copy_.Run(a_block_desc_m0_m1_m2_k,
                                    make_tuple(m0, I0, I0, Number<k * AMmaKStride>{}),
-                               a_block_buf,
-                               a_thread_desc_,
-                               make_tuple(I0, I0, I0, I0),
-                               a_thread_buf);
-
-            static_for<0, NRepeat, 1>{}([&](auto n0) {
-                    // read B with stride
-                b_thread_copy_.Run(b_block_desc_n0_n1_n2_k,
-                                       make_tuple(n0, I0, I0, Number<k * BMmaKStride>{}),
-                                   b_block_buf,
-                                   b_thread_desc_,
+                                   a_block_buf,
+                                   a_thread_desc_,
                                    make_tuple(I0, I0, I0, I0),
-                                   b_thread_buf);
-#if 0
-                if (!TransposeC && hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
-                    printf("bid %zd tid %zd, mma tile %d %d, a[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, b[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f\n",
-                        hipBlockIdx_x, hipThreadIdx_x, m0.value, n0.value,
+                                   a_thread_buf);
+
+                static_for<0, NRepeat, 1>{}([&](auto n0) {
+                    // read B with stride
+                    b_thread_copy_.Run(b_block_desc_n0_n1_n2_k,
+                                       make_tuple(n0, I0, I0, Number<k * BMmaKStride>{}),
+                                       b_block_buf,
+                                       b_thread_desc_,
+                                       make_tuple(I0, I0, I0, I0),
+                                       b_thread_buf);
+#if 1
+                if (!TransposeC && hipThreadIdx_x % 32 < 8) {
+                    printf("bid %zd tid %zd, mma tile %d %d %d, a[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, b[0:3] = %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f, %.0f\n",
+                        hipBlockIdx_x, hipThreadIdx_x, m0.value, n0.value, k.value,
                         // (float)a_thread_buf[Number<0>{}],
                         // (float)a_thread_buf[Number<1>{}],
                         // (float)a_thread_buf[Number<2>{}],
@@ -375,10 +375,9 @@ struct BlockwiseGemmXdlops_k0mk1_k0nk1_m0n0m1n1m2m3m4n2_v1
                         );
                 }
 #endif
-                static_for<0, KPerThread, KPack>{}([&](auto k) {
                     vector_type<FloatAB, KPack> a_thread_vec;
                     vector_type<FloatAB, KPack> b_thread_vec;
-
+                    // xdlops_gemm.K0PerXdlops
                     // TODO ANT: add appropriate iteration delta
                     static_for<0, KPack, 1>{}([&](auto i) {
                         a_thread_vec.template AsType<FloatAB>()(i) = a_thread_buf
