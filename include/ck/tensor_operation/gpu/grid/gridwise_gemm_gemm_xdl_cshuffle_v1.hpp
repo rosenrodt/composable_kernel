@@ -265,7 +265,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         return c_shuffle_block_desc_mblock_mperblock_nblock_nperblock;
     }
 
-    // TODO ANT: take B1 into account
     __host__ __device__ static constexpr index_t GetSharedMemoryNumberOfByte()
     {
         // LDS allocation for A and B: be careful of alignment
@@ -527,13 +526,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 make_multi_index(0, 0, 0),
                 tensor_operation::element_wise::PassThrough{});
 
-        // TODO ANT: revise comments
-        // GEMM definition
-        //   c_mtx += transpose(a_mtx) * b_mtx
-        //     a_mtx[K0PerBlock, MPerBlock] is in LDS
-        //     b_mtx[K0PerBlock, NPerBlock] is in LDS
-        //     c_mtx[MPerBlock, NPerBlock] is distributed among threads, and saved in
-        //       register
         // sanity check
         constexpr index_t KPack = math::max(
             math::lcm(AK1, BK1), MfmaSelector<FloatAB, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
@@ -743,7 +735,7 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                        num_gemm1_k_block_outer_loop);
 #endif
 #if 0
-            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
+            if (hipBlockIdx_x == 0 && hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
                 static_for<0, acc_thread_buf.Size(), 1>{}([&](auto I) {
                     printf("bid %zd tid %zd, acc[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, acc_thread_buf[I]);
                 });
@@ -807,10 +799,10 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                         block_sync_lds();
 
                         gemm1_blockwise_gemm.Run(a1_thread_buf, b1_block_buf, c_thread_buf);
-#if 0
+#if 1
                         if (hipThreadIdx_x % 32 < 8) {
                             static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
-                                printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value - 1, I.value, c_thread_buf[I]);
+                                printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, i.value, I.value, c_thread_buf[I]);
                             });
                         }
 #endif
@@ -838,9 +830,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
                 }
             } // end gemm1
 #if 1
-            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 8) {
+            if (hipThreadIdx_x % 32 < 8) {
                 static_for<0, c_thread_buf.Size(), 1>{}([&](auto I) {
-                    printf("bid %zd tid %zd, iter final, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, I.value, c_thread_buf[I]);
+                    printf("bid %zd tid %zd, iter %d, c[%d] = %f\n", hipBlockIdx_x, hipThreadIdx_x, num_gemm1_k_block_inner_loop - 1, I.value, c_thread_buf[I]);
                 });
             }
 #endif

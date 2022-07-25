@@ -227,8 +227,8 @@ int main(int argc, char* argv[])
         a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
         // b0_k_n.GenerateTensorValue(GeneratorTensor_1<B0DataType>{1});
         b0_k_n.GenerateTensorValue(GeneratorTensor_Sequential<1>{});
-        b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
-        // b1_n_o.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
+        // b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
+        b1_n_o.GenerateTensorValue(GeneratorTensor_Sequential<0>{});
     }
 
     DeviceMem a_m_k_device_buf(sizeof(ADataType) * a_m_k.mDesc.GetElementSpace());
