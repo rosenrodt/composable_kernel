@@ -314,14 +314,14 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const auto M = a_grid_desc_ak0_m_ak1.GetLength(I1);
         const auto N = b_grid_desc_bk0_n_bk1.GetLength(I1);
         const auto K = a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2);
-        // const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
+        const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
 
-        if(!(M == c_grid_desc_m_n.GetLength(I0) && N == c_grid_desc_m_n.GetLength(I1)))
+        if(!(M == c_grid_desc_m_n.GetLength(I0) && Gemm1N == c_grid_desc_m_n.GetLength(I1)))
         {
             return false;
         }
 
-        if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0))
+        if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0 && Gemm1N % Gemm1NPerBlock == 0))
         {
             return false;
         }
