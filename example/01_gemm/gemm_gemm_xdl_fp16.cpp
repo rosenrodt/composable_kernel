@@ -73,7 +73,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     128,         // MPerBlock
     128,         // NPerBlock
     32,          // KPerBlock
-    64,          // Gemm1NPerBlock
+    128,          // Gemm1NPerBlock
     32,          // Gemm1KPerBlock
     8,           // AK1
     8,           // BK1
@@ -82,7 +82,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     32,          // NPerXDL
     1,           // MXdlPerWave
     4,           // NXdlPerWave
-    2,           // Gemm1NXdlPerWave
+    4,           // Gemm1NXdlPerWave
     S<4, 64, 1>, // ABlockTransfer
     S<1, 0, 2>,
     S<1, 0, 2>,
@@ -97,7 +97,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceGemmGemm_Xdl_CShu
     8,
     8,
     true,
-    S<16, 16, 1>, // B1BlockTransfer
+    S<8, 32, 1>, // B1BlockTransfer
     S<0, 2, 1>,
     S<0, 2, 1>,
     1,
