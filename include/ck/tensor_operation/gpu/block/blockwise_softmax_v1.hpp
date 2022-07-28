@@ -37,19 +37,19 @@ struct BlockwiseSoftmax
 
     using ThreadClusterLengths_M_K = decltype(ThreadClusterDesc_M_K{}.GetLengths());
 
-    using BlockwiseMaxReduce = PartitionedBlockwiseReduction2<AccDataType,
-                                                              BlockSize,
-                                                              ThreadClusterLengths_M_K,
-                                                              ThreadMap_M_K,
-                                                              reduce::Max,
-                                                              false>;
+    using BlockwiseMaxReduce = PartitionedBlockwiseReduction_v2<AccDataType,
+                                                                BlockSize,
+                                                                ThreadClusterLengths_M_K,
+                                                                ThreadMap_M_K,
+                                                                reduce::Max,
+                                                                false>;
 
-    using BlockwiseSumReduce = PartitionedBlockwiseReduction2<AccDataType,
-                                                              BlockSize,
-                                                              ThreadClusterLengths_M_K,
-                                                              ThreadMap_M_K,
-                                                              reduce::Add,
-                                                              false>;
+    using BlockwiseSumReduce = PartitionedBlockwiseReduction_v2<AccDataType,
+                                                                BlockSize,
+                                                                ThreadClusterLengths_M_K,
+                                                                ThreadMap_M_K,
+                                                                reduce::Add,
+                                                                false>;
 
     using ThreadwiseSumReduce = ThreadwiseReduction<AccDataType,
                                                     ThreadSliceDesc_M_K,
