@@ -130,7 +130,7 @@ using ReferenceGemm1Instance = ck::tensor_operation::host::
 int main(int argc, char* argv[])
 {
     bool do_verification = true;
-    int init_method      = 1;
+    int init_method      = 3;
     bool time_kernel     = false;
 
     // GEMM shape
@@ -145,14 +145,14 @@ int main(int argc, char* argv[])
     // ck::index_t StrideC = 1024;
 
     ck::index_t M = 256;
-    ck::index_t N = 128;
-    ck::index_t K = 32;
+    ck::index_t N = 256;
+    ck::index_t K = 256;
     ck::index_t O = 128;
-    ck::index_t StrideA = 32;
-    ck::index_t StrideB0 = 32;
+    ck::index_t StrideA = 256;
+    ck::index_t StrideB0 = 256;
     ck::index_t StrideB1 = 128;
     ck::index_t StrideC = 128;
-    ck::index_t BatchCount = 64;
+    ck::index_t BatchCount = 2;
 
     if(argc == 1)
     {
@@ -232,6 +232,11 @@ int main(int argc, char* argv[])
         a_m_k.GenerateTensorValue(GeneratorTensor_3<ADataType>{0.0, 1.0});
         b0_k_n.GenerateTensorValue(GeneratorTensor_3<B0DataType>{0.0, 1.0});
         b1_n_o.GenerateTensorValue(GeneratorTensor_3<B1DataType>{-0.5, 0.5});
+        break;
+    case 3:
+        a_m_k.GenerateTensorValue(GeneratorTensor_2<ADataType>{-2, 2});
+        b0_k_n.GenerateTensorValue(GeneratorTensor_Diagonal<B0DataType>{});
+        b1_n_o.GenerateTensorValue(GeneratorTensor_Diagonal<B1DataType>{});
         break;
     default:
         a_m_k.GenerateTensorValue(GeneratorTensor_1<ADataType>{1});
