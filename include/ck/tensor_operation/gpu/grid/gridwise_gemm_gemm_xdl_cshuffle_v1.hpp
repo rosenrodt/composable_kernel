@@ -75,6 +75,9 @@ template <typename FloatAB,
           LoopScheduler LoopSched>
 struct GridwiseGemmGemm_xdl_cshuffle_v1
 {
+    static_assert(LoopSched == LoopScheduler::Default,
+                  "Non-default loop scheduler is currently not supported");
+
     static constexpr auto I0 = Number<0>{};
     static constexpr auto I1 = Number<1>{};
     static constexpr auto I2 = Number<2>{};
@@ -488,8 +491,9 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const auto b_block_reset_copy_step = make_multi_index(-b_grid_desc_bk0_n_bk1.GetLength(I0), NPerBlock, 0);
 
         // gridwise GEMM pipeline
+        // Only supports LoopScheduler::Default
         const auto gridwise_gemm_pipeline =
-            GridwiseGemmPipeline_v1_Selector<NumGemmKPrefetchStage, LoopSched>();
+            GridwiseGemmPipeline_v1_Selector<NumGemmKPrefetchStage, LoopScheduler::Default>();
 
         const index_t num_k_block_main_loop = __builtin_amdgcn_readfirstlane(
             (a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2)) /
