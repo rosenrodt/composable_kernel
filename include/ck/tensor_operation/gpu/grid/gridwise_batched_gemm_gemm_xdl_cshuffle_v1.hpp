@@ -365,9 +365,6 @@ struct GridwiseGemmGemm_xdl_cshuffle_v1
         const index_t n_block_data_idx_on_grid =
             __builtin_amdgcn_readfirstlane(block_work_idx[I1] * Gemm1NPerBlock);
 
-        // lds max alignment
-        constexpr auto max_lds_align = math::lcm(math::lcm(AK1, BK1), B1K1);
-
         // A matrix in LDS memory, dst of blockwise copy
         constexpr auto a_block_desc_ak0_m_ak1 = GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
 
