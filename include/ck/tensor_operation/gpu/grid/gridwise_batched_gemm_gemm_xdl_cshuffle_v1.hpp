@@ -75,7 +75,7 @@ template <typename FloatAB,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
           LoopScheduler LoopSched>
-struct GridwiseGemmGemm_xdl_cshuffle_v1
+struct GridwiseBatchedGemmGemm_Xdl_CShuffle
 {
     static_assert(LoopSched == LoopScheduler::Default,
                   "Non-default loop scheduler is currently not supported");
