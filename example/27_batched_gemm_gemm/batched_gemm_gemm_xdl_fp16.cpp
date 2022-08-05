@@ -74,7 +74,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmGemm_X
     GemmDefault,
     1,
     256,
-    128,         // MPerBlock
+    256,         // MPerBlock
     128,         // NPerBlock
     32,          // KPerBlock
     64,          // Gemm1NPerBlock
@@ -84,7 +84,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmGemm_X
     2,           // B1K1
     32,          // MPerXDL
     32,          // NPerXDL
-    1,           // MXdlPerWave
+    2,           // MXdlPerWave
     4,           // NXdlPerWave
     2,           // Gemm1NXdlPerWave
     S<4, 64, 1>, // ABlockTransfer
