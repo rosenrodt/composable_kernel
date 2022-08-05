@@ -54,7 +54,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmCPermu
 // clang-format on
 
 using ReferenceBatchedGemmInstance = ck::tensor_operation::host::
-    ReferenceBatchedGemm<ADataType, BDataType, CDataType, AElementOp, BElementOp, CElementOp>;
+    ReferenceBatchedGemm<ADataType, BDataType, CDataType, AccDataType, AElementOp, BElementOp, CElementOp>;
 
 int main(int argc, char* argv[])
 {

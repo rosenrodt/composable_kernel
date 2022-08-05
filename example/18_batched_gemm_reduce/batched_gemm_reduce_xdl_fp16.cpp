@@ -67,7 +67,7 @@ using DeviceBatchedGemmReduceInstance = ck::tensor_operation::device::DeviceBatc
 // clang-format on
 
 using ReferenceBatchedGemmInstance = ck::tensor_operation::host::
-    ReferenceBatchedGemm<ADataType, BDataType, CDataType, AElementOp, BElementOp, CElementOp>;
+    ReferenceBatchedGemm<ADataType, BDataType, CDataType, ReduceAccDataType, AElementOp, BElementOp, CElementOp>;
 
 int main(int argc, char* argv[])
 {
