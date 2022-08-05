@@ -628,38 +628,38 @@ struct GridwiseBatchedGemmGemm_Xdl_CShuffle
         constexpr auto thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4 =
             blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths() /
             blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
-        constexpr auto tm0 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I0);
-        constexpr auto tn0 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I1);
-        constexpr auto tm1 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I2);
-        constexpr auto tn1 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I3);
-        constexpr auto tm2 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I4);
-        constexpr auto tn2 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I5);
-        constexpr auto tn3 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I6);
-        constexpr auto tn4 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I7);
+        constexpr auto tm0                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I0);
+        constexpr auto tn0                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I1);
+        constexpr auto tm1                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I2);
+        constexpr auto tn1                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I3);
+        constexpr auto tm2                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I4);
+        constexpr auto tn2                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I5);
+        constexpr auto tn3                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I6);
+        constexpr auto tn4                    = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I7);
         constexpr auto m0_n_m1_to_m_n_adaptor = make_single_stage_tensor_adaptor(
             make_tuple(make_unmerge_transform(make_tuple(tm0 * tm1, tm2)),
                        make_pass_through_transform(I1)),
             make_tuple(Sequence<0>{}, Sequence<1>{}),
             make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
-        constexpr auto threadid_to_m0_n_m1_adaptor =
-            make_single_stage_tensor_adaptor(make_tuple(make_merge_transform(make_tuple(
-                                                 tm0 * tm1, tn0 * tn1 * tn2 * tn3 * tn4, tm2))),
-                                             make_tuple(Sequence<0, 1, 2>{}),
-                                             make_tuple(Sequence<0>{}));
+        constexpr auto threadid_to_m0_n_m1_adaptor = make_single_stage_tensor_adaptor(
+            make_tuple(
+                make_merge_transform(make_tuple(tm0 * tm1, tn0 * tn1 * tn2 * tn3 * tn4, tm2))),
+            make_tuple(Sequence<0, 1, 2>{}),
+            make_tuple(Sequence<0>{}));
         const auto threadid_to_m_n_thread_cluster_adaptor =
-            chain_tensor_adaptors(m0_n_m1_to_m_n_adaptor,
-                                  threadid_to_m0_n_m1_adaptor);
+            chain_tensor_adaptors(m0_n_m1_to_m_n_adaptor, threadid_to_m0_n_m1_adaptor);
 
-        constexpr auto thread_cluster_desc_m_n =
-            make_naive_tensor_descriptor_packed(make_tuple(tm0 * tm1 * tm2, tn0 * tn1 * tn2 * tn3 * tn4));
+        constexpr auto thread_cluster_desc_m_n = make_naive_tensor_descriptor_packed(
+            make_tuple(tm0 * tm1 * tm2, tn0 * tn1 * tn2 * tn3 * tn4));
         constexpr auto thread_slice_desc_m_n =
             make_naive_tensor_descriptor_packed(make_tuple(m0 * m1 * m2, n0 * n1 * n2 * n3 * n4));
 
-        auto blockwise_softmax = BlockwiseSoftmax_V1<BlockSize,
-                                                     FloatGemmAcc,
-                                                     decltype(threadid_to_m_n_thread_cluster_adaptor),
-                                                     decltype(thread_cluster_desc_m_n),
-                                                     decltype(thread_slice_desc_m_n)>{};
+        auto blockwise_softmax =
+            BlockwiseSoftmax_V1<BlockSize,
+                                FloatGemmAcc,
+                                decltype(threadid_to_m_n_thread_cluster_adaptor),
+                                decltype(thread_cluster_desc_m_n),
+                                decltype(thread_slice_desc_m_n)>{};
 
         const index_t num_gemm1_k_block_outer_loop =
             b_grid_desc_bk0_n_bk1.GetLength(I1) / NPerBlock;
