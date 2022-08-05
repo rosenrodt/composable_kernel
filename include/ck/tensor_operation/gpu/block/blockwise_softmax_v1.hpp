@@ -75,7 +75,7 @@ struct BlockwiseSoftmax_V1
         // calculate exp for elements, P=exp(s-max)
         static_for<0, MRepeat, 1>{}([&](auto iM) {
             static_for<0, KRepeat, 1>{}([&](auto iK) {
-                auto offset = Number<ThreadClusterDesc_M_K{}.CalculateOffset(make_tuple(iM, iK))>{};
+                auto offset = Number<ThreadSliceDesc_M_K{}.CalculateOffset(make_tuple(iM, iK))>{};
                 in_thread_buf(offset) = math::exp(in_thread_buf[offset] - max_value_buf(iM));
             });
         });
@@ -85,6 +85,7 @@ struct BlockwiseSoftmax_V1
             sum_value_buf(I) = reduce::Add::template GetIdentityValue<AccDataType>();
         });
         ThreadwiseSumReduce::Reduce(in_thread_buf, sum_value_buf);
+        block_sync_lds();
         static_for<0, MRepeat, 1>{}([&](auto I) {
             BlockwiseSumReduce::Reduce(reduce_work_buf, sum_value_buf(I));
             block_sync_lds();
