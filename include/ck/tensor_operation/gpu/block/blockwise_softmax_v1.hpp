@@ -57,6 +57,8 @@ struct BlockwiseSoftmax_V1
                                                     reduce::Add,
                                                     false>;
 
+    using BufferType = StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MRepeat, true>;
+
     template <typename CThreadBuffer, typename WorkspaceBuffer>
     __host__ __device__ void Run(CThreadBuffer& in_thread_buf, WorkspaceBuffer& reduce_work_buf)
     {
@@ -89,8 +91,8 @@ struct BlockwiseSoftmax_V1
         });
     }
 
-    StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MRepeat, true> max_value_buf;
-    StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MRepeat, true> sum_value_buf;
+    BufferType max_value_buf;
+    BufferType sum_value_buf;
 };
 
 } // namespace ck
