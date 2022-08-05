@@ -53,8 +53,13 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmCPermu
         <     Row,     Col,   F16,   F16,   F16,     F32, PassThrough, PassThrough, PassThrough,     MNKPadding,        1,   256,   128,    64,    32,   8,   8,   32,   32,    2,    1,     S<4, 64, 1>,     S<1, 0, 2>,     S<1, 0, 2>,              2,              8,              8,      true,     S<4, 32, 1>,     S<1, 0, 2>,     S<1, 0, 2>,             2,              8,              8,      true,            1,           1,               S<1, 32, 1, 8>,                8>;
 // clang-format on
 
-using ReferenceBatchedGemmInstance = ck::tensor_operation::host::
-    ReferenceBatchedGemm<ADataType, BDataType, CDataType, AElementOp, BElementOp, CElementOp>;
+using ReferenceBatchedGemmInstance = ck::tensor_operation::host::ReferenceBatchedGemm<ADataType,
+                                                                                      BDataType,
+                                                                                      CDataType,
+                                                                                      AccDataType,
+                                                                                      AElementOp,
+                                                                                      BElementOp,
+                                                                                      CElementOp>;
 
 int main(int argc, char* argv[])
 {
