@@ -12,126 +12,85 @@
 
 namespace ck {
 
-// TODO: expose thread cluster, thread desc, ~~and block desc~~ not needed
 // TODO: how to capture different use cases like "load + softmax" and "gemm + softmax"? obviously
 //       static buffer will be two different classes with their own accessors
 template <index_t BlockSize,
           typename AccDataType,
-          typename ThreadClusterDesc,
-          index_t MPerBlock,
-          index_t MPerXDL,
-          index_t NPerXDL,
-          index_t RegSizePerXdlops,
-          index_t MRepeat,
-          index_t NRepeat>
-struct BlockwiseSoftmax_V1
+          typename ThreadMap_M_K, // thread_id to m_k
+          typename ThreadClusterDesc_M_K,
+          typename ThreadSliceDesc_M_K>
+struct BlockwiseSoftmax
 {
-    // TODO: remove limitation
-    static_assert(MRepeat == 1, "Now MRepeat must equal 1");
+    static constexpr auto I0         = Number<0>{};
+    static constexpr auto I1         = Number<1>{};
+    static constexpr index_t MRepeat = ThreadSliceDesc_M_K{}.GetLength(I0);
+    static constexpr index_t KRepeat = ThreadSliceDesc_M_K{}.GetLength(I1);
 
-    static constexpr auto I0                  = Number<0>{};
-    static constexpr auto I1                  = Number<1>{};
-    static constexpr index_t MThreadSliceSize = MRepeat;
-    static constexpr index_t WaveSize         = 64;
-
-    // TODO: should not expose XDL details
-    static_assert(MPerBlock == MPerXDL * BlockSize / WaveSize, "wave is only m direction");
-
-    constexpr static auto in_thread_desc = make_naive_tensor_descriptor_packed(
-        make_tuple(Number<MRepeat>{}, Number<NRepeat>{}, Number<RegSizePerXdlops>{}));
-
-    using ThreadReduceSrcDesc_M_K = decltype(make_naive_tensor_descriptor_packed(
-        make_tuple(Number<1>{}, Number<RegSizePerXdlops * NRepeat>{})));
-    using ThreadReduceDstDesc_M =
-        decltype(make_naive_tensor_descriptor_packed(make_tuple(Number<1>{})));
+    using ThreadSliceDesc_M = decltype(make_naive_tensor_descriptor_packed(
+        make_tuple(ThreadSliceDesc_M_K{}.GetLength(I0))));
 
     using ThreadwiseMaxReduce = ThreadwiseReduction<AccDataType,
-                                                    ThreadReduceSrcDesc_M_K,
-                                                    ThreadReduceDstDesc_M,
+                                                    ThreadSliceDesc_M_K,
+                                                    ThreadSliceDesc_M,
                                                     reduce::Max,
                                                     false>;
 
-    using ThreadClusterLengths_M_K = Sequence<MPerBlock, WaveSize / MPerXDL>;
+    using ThreadClusterLengths_M_K = decltype(ThreadClusterDesc_M_K{}.GetLengths());
 
     using BlockwiseMaxReduce = PartitionedBlockwiseReduction2<AccDataType,
                                                               BlockSize,
                                                               ThreadClusterLengths_M_K,
-                                                              BlockToMKMap_M0_K_M1Adapt,
+                                                              ThreadMap_M_K,
                                                               reduce::Max,
                                                               false>;
 
     using BlockwiseSumReduce = PartitionedBlockwiseReduction2<AccDataType,
                                                               BlockSize,
                                                               ThreadClusterLengths_M_K,
-                                                              BlockToMKMap_M0_K_M1Adapt,
+                                                              ThreadMap_M_K,
                                                               reduce::Add,
                                                               false>;
 
     using ThreadwiseSumReduce = ThreadwiseReduction<AccDataType,
-                                                    ThreadReduceSrcDesc_M_K,
-                                                    ThreadReduceDstDesc_M,
+                                                    ThreadSliceDesc_M_K,
+                                                    ThreadSliceDesc_M,
                                                     reduce::Add,
                                                     false>;
 
     template <typename CThreadBuffer, typename WorkspaceBuffer>
-    __host__ __device__ static void Run(CThreadBuffer& in_thread_buf,
-                                        AccDataType& f_sum,
-                                        AccDataType& f_max,
-                                        WorkspaceBuffer& reduce_work_buf)
+    __host__ __device__ void Run(CThreadBuffer& in_thread_buf, WorkspaceBuffer& reduce_work_buf)
     {
-        //
         // find max value
-        //
-        StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MThreadSliceSize, true> max_value_buf;
-        static_for<0, MThreadSliceSize, 1>{}([&](auto I) {
+        static_for<0, MRepeat, 1>{}([&](auto I) {
             max_value_buf(I) = reduce::Max::template GetIdentityValue<AccDataType>();
         });
-
-        // max value for one thread
-        // static_for<0, NRepeat, 1>{}([&](auto n) {
-        //     constexpr index_t in_offset = in_thread_desc.CalculateOffset(make_tuple(0, n, 0));
-        //     const auto& xdlops_out      =
-        //     in_thread_buf.GetVectorTypeReference(Number<in_offset>{});
-
         ThreadwiseMaxReduce::Reduce(in_thread_buf, max_value_buf);
-        // });
-
-        // block reduce for max
-        BlockwiseMaxReduce::Reduce(reduce_work_buf, max_value_buf(I0));
-        block_sync_lds();
-        // save max
-        f_max = max_value_buf(I0);
-
-        //
-        // softmax
-        //
-        StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MThreadSliceSize, true> accu_value_buf;
-        static_for<0, MThreadSliceSize, 1>{}([&](auto I) {
-            accu_value_buf(I) = reduce::Add::template GetIdentityValue<AccDataType>();
+        static_for<0, MRepeat, 1>{}([&](auto I) {
+            BlockwiseMaxReduce::Reduce(reduce_work_buf, max_value_buf(I));
+            block_sync_lds();
         });
+
         // calculate exp for elements, P=exp(s-max)
-        // static_for<0, NRepeat, 1>{}([&](auto n) {
-        //     constexpr index_t in_offset = in_thread_desc.CalculateOffset(make_tuple(0, n, 0));
-        //     auto& xdlops_out            =
-        //     in_thread_buf.GetVectorTypeReference(Number<in_offset>{});
+        static_for<0, MRepeat, 1>{}([&](auto iM) {
+            static_for<0, KRepeat, 1>{}([&](auto iK) {
+                auto offset = Number<ThreadSliceDesc_M_K{}.CalculateOffset(make_tuple(iM, iK))>{};
+                in_thread_buf(offset) = math::exp(in_thread_buf[offset] - max_value_buf(iM));
+            });
+        });
 
-        static_for<0, RegSizePerXdlops * NRepeat, 1>{}(
-            [&](auto iK) { in_thread_buf(iK) = math::exp(in_thread_buf[iK] - max_value_buf(I0)); });
-        // });
         // sum data
-        // static_for<0, NRepeat, 1>{}([&](auto n) {
-        //     constexpr index_t in_offset = in_thread_desc.CalculateOffset(make_tuple(0, n, 0));
-        //     const auto& xdlops_out      =
-        //     in_thread_buf.GetVectorTypeReference(Number<in_offset>{});
-        ThreadwiseSumReduce::Reduce(in_thread_buf, accu_value_buf);
-        block_sync_lds();
-        // });
-        BlockwiseSumReduce::Reduce(reduce_work_buf, accu_value_buf(I0));
-        block_sync_lds();
-
-        // save sum
-        f_sum = accu_value_buf(I0);
+        static_for<0, MRepeat, 1>{}([&](auto I) {
+            sum_value_buf(I) = reduce::Add::template GetIdentityValue<AccDataType>();
+        });
+        ThreadwiseSumReduce::Reduce(in_thread_buf, sum_value_buf);
+        static_for<0, MRepeat, 1>{}([&](auto I) {
+            BlockwiseSumReduce::Reduce(reduce_work_buf, sum_value_buf(I));
+            block_sync_lds();
+        });
     }
+
+    StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MRepeat, true> max_value_buf;
+    StaticBuffer<AddressSpaceEnum::Vgpr, AccDataType, MRepeat, true> sum_value_buf;
 };
 
 } // namespace ck
