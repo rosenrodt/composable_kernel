@@ -56,7 +56,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmMultiD
 // clang-format on
 
 using ReferenceBatchedGemmInstance = ck::tensor_operation::host::
-    ReferenceBatchedGemm<ADataType, BDataType, EDataType, AElementOp, BElementOp, CDEElementOp>;
+    ReferenceBatchedGemm<ADataType, BDataType, EDataType, AccDataType, AElementOp, BElementOp, CDEElementOp>;
 
 int main(int argc, char* argv[])
 {
