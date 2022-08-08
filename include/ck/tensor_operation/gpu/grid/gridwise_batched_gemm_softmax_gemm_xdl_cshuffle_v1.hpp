@@ -14,7 +14,7 @@
 #include "ck/tensor_operation/gpu/block/thread_group_tensor_slice_transfer_v6r1.hpp"
 #include "ck/tensor_operation/gpu/thread/threadwise_tensor_slice_transfer.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
-#include "ck/tensor_operation/gpu/block/blockwise_softmax_v1.hpp"
+#include "ck/tensor_operation/gpu/block/blockwise_softmax.hpp"
 
 namespace ck {
 

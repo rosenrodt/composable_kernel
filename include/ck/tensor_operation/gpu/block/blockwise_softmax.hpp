@@ -12,8 +12,6 @@
 
 namespace ck {
 
-// TODO: how to capture different use cases like "load + softmax" and "gemm + softmax"? obviously
-//       static buffer will be two different classes with their own accessors
 template <index_t BlockSize,
           typename AccDataType,
           typename ThreadMap_M_K, // thread_id to m_k
