@@ -24,7 +24,7 @@ template <typename ALayout,
           typename B0ElementwiseOperation,
           typename B1ElementwiseOperation,
           typename CElementwiseOperation>
-struct DeviceBatchedGemmGemm : public BaseOperator
+struct DeviceBatchedGemmSoftmaxGemm : public BaseOperator
 {
     virtual std::unique_ptr<BaseArgument>
     MakeArgumentPointer(const void* p_a,
@@ -64,18 +64,19 @@ template <typename ALayout,
           typename B0ElementwiseOperation,
           typename B1ElementwiseOperation,
           typename CElementwiseOperation>
-using DeviceBatchedGemmGemmPtr = std::unique_ptr<DeviceBatchedGemmGemm<ALayout,
-                                                                       B0Layout,
-                                                                       B1Layout,
-                                                                       CLayout,
-                                                                       ADataType,
-                                                                       B0DataType,
-                                                                       B1DataType,
-                                                                       CDataType,
-                                                                       AElementwiseOperation,
-                                                                       B0ElementwiseOperation,
-                                                                       B1ElementwiseOperation,
-                                                                       CElementwiseOperation>>;
+using DeviceBatchedGemmSoftmaxGemmPtr =
+    std::unique_ptr<DeviceBatchedGemmSoftmaxGemm<ALayout,
+                                                 B0Layout,
+                                                 B1Layout,
+                                                 CLayout,
+                                                 ADataType,
+                                                 B0DataType,
+                                                 B1DataType,
+                                                 CDataType,
+                                                 AElementwiseOperation,
+                                                 B0ElementwiseOperation,
+                                                 B1ElementwiseOperation,
+                                                 CElementwiseOperation>>;
 
 } // namespace device
 } // namespace tensor_operation
