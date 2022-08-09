@@ -7,7 +7,7 @@
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
-#include "ck/tensor_operation/gpu/device/device_batched_gemm_gemm.hpp"
+#include "ck/tensor_operation/gpu/device/device_batched_gemm_softmax_gemm.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
 #include "ck/library/tensor_operation_instance/gpu/batched_gemm_softmax_gemm.hpp"
@@ -179,24 +179,47 @@ bool profile_batched_gemm_softmax_gemm_impl(bool do_verification,
     auto b1_element_op = B1ElementOp{};
     auto c_element_op  = CElementOp{};
 
-    using DeviceOp = tensor_operation::device::DeviceBatchedGemmGemm<ALayout,
-                                                                     B0Layout,
-                                                                     B1Layout,
-                                                                     CLayout,
-                                                                     ADataType,
-                                                                     B0DataType,
-                                                                     B1DataType,
-                                                                     CDataType,
-                                                                     AElementOp,
-                                                                     B0ElementOp,
-                                                                     B1ElementOp,
-                                                                     CElementOp>;
+    using DeviceOp = tensor_operation::device::DeviceBatchedGemmSoftmaxGemm<ALayout,
+                                                                            B0Layout,
+                                                                            B1Layout,
+                                                                            CLayout,
+                                                                            ADataType,
+                                                                            B0DataType,
+                                                                            B1DataType,
+                                                                            CDataType,
+                                                                            AElementOp,
+                                                                            B0ElementOp,
+                                                                            B1ElementOp,
+                                                                            CElementOp>;
 
     // get device op instances
     const auto op_ptrs = tensor_operation::device::instance::DeviceOperationInstanceFactory<
         DeviceOp>::GetInstances();
 
     std::cout << "found " << op_ptrs.size() << " instances" << std::endl;
+
+    if(do_verification)
+    {
+        auto ref_gemm0          = ReferenceGemm0Instance{};
+        auto ref_gemm0_invoker  = ref_gemm0.MakeInvoker();
+        auto ref_gemm0_argument = ref_gemm0.MakeArgument(
+            a_g_m_k, b0_g_k_n, acc0_g_m_n, a_element_op, b0_element_op, PassThrough{});
+
+        ref_gemm0_invoker.Run(ref_gemm0_argument);
+
+        auto ref_softmax          = ReferenceSoftmaxInstance{};
+        auto ref_softmax_invoker  = ref_softmax.MakeInvoker();
+        auto ref_softmax_argument = ref_softmax.MakeArgument(acc0_g_m_n, a1_g_m_n, 1, 0, {2});
+
+        ref_softmax_invoker.Run(ref_softmax_argument);
+
+        auto ref_gemm1          = ReferenceGemm1Instance{};
+        auto ref_gemm1_invoker  = ref_gemm1.MakeInvoker();
+        auto ref_gemm1_argument = ref_gemm1.MakeArgument(
+            a1_g_m_n, b1_g_n_o, c_g_m_o_host_result, PassThrough{}, b1_element_op, c_element_op);
+
+        ref_gemm1_invoker.Run(ref_gemm1_argument);
+    }
 
     std::string best_op_name;
     float best_ave_time   = 0;
@@ -260,31 +283,6 @@ bool profile_batched_gemm_softmax_gemm_impl(bool do_verification,
 
             if(do_verification)
             {
-                auto ref_gemm0          = ReferenceGemm0Instance{};
-                auto ref_gemm0_invoker  = ref_gemm0.MakeInvoker();
-                auto ref_gemm0_argument = ref_gemm0.MakeArgument(
-                    a_g_m_k, b0_g_k_n, acc0_g_m_n, a_element_op, b0_element_op, PassThrough{});
-
-                ref_gemm0_invoker.Run(ref_gemm0_argument);
-
-                auto ref_softmax         = ReferenceSoftmaxInstance{};
-                auto ref_softmax_invoker = ref_softmax.MakeInvoker();
-                auto ref_softmax_argument =
-                    ref_softmax.MakeArgument(acc0_g_m_n, a1_g_m_n, 1, 0, {2});
-
-                ref_softmax_invoker.Run(ref_softmax_argument);
-
-                auto ref_gemm1          = ReferenceGemm1Instance{};
-                auto ref_gemm1_invoker  = ref_gemm1.MakeInvoker();
-                auto ref_gemm1_argument = ref_gemm1.MakeArgument(a1_g_m_n,
-                                                                 b1_g_n_o,
-                                                                 c_g_m_o_host_result,
-                                                                 PassThrough{},
-                                                                 b1_element_op,
-                                                                 c_element_op);
-
-                ref_gemm1_invoker.Run(ref_gemm1_argument);
-
                 c_g_m_o_device_buf.FromDevice(c_g_m_o_device_result.mData.data());
 
                 pass = pass &

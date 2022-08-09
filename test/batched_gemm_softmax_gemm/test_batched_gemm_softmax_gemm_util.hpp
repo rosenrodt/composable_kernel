@@ -6,13 +6,13 @@
 #include <vector>
 #include "profiler/include/profile_batched_gemm_softmax_gemm_impl.hpp"
 
-using ADataType = ck::half_t;
+using ADataType  = ck::half_t;
 using B0DataType = ck::half_t;
 using B1DataType = ck::half_t;
-using CDataType = ck::half_t;
+using CDataType  = ck::half_t;
 
 template <typename Tuple>
-struct TestGemmSoftmaxGemm : public ::testing::Test
+struct TestBatchedGemmSoftmaxGemm : public ::testing::Test
 {
     using ADataType  = std::tuple_element_t<0, Tuple>;
     using B0DataType = std::tuple_element_t<1, Tuple>;
@@ -23,8 +23,16 @@ struct TestGemmSoftmaxGemm : public ::testing::Test
     using B1Layout   = std::tuple_element_t<6, Tuple>;
     using CLayout    = std::tuple_element_t<7, Tuple>;
 
-    // std::vector<std::vector<int>> lengths_ = {{128, 128, 32, 128, 1}, {1024, 1024, 1024, 1024, 4}};
-    std::vector<std::vector<int>> lengths_ = {{128, 128, 32, 128, 1}};
+    std::vector<std::vector<int>> lengths_ = {
+        {256, 256, 64, 64, 4},
+        {256, 256, 128, 128, 4},
+        {512, 512, 64, 64, 2},
+        {512, 512, 128, 128, 2},
+        {1024, 1024, 64, 64, 1},
+        {1024, 1024, 128, 128, 1},
+    };
+    bool bench_ = false;
+    bool verify_ = true;
 
     void RunSingle(int M, int N, int K, int O, int BatchCount)
     {
@@ -36,7 +44,7 @@ struct TestGemmSoftmaxGemm : public ::testing::Test
                                                                          B0Layout,
                                                                          B1Layout,
                                                                          CLayout>(
-            true, 1, false, true, M, N, K, O, BatchCount);
+            verify_, 1, false, bench_, M, N, K, O, BatchCount);
 
         EXPECT_TRUE(pass);
     }

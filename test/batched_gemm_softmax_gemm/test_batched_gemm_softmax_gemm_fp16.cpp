@@ -12,7 +12,7 @@ using Col = ck::tensor_layout::gemm::ColumnMajor;
 using F16 = ck::half_t;
 
 template <typename Tuple>
-class TestGemmSoftmaxGemmFP16 : public TestGemmSoftmaxGemm<Tuple>
+class TestBatchedGemmSoftmaxGemmFP16 : public TestBatchedGemmSoftmaxGemm<Tuple>
 {
 };
 
@@ -22,5 +22,24 @@ using KernelTypes = ::testing::Types<
     >;
 // clang-format on
 
-TYPED_TEST_SUITE(TestGemmSoftmaxGemmFP16, KernelTypes);
-TYPED_TEST(TestGemmSoftmaxGemmFP16, Test_FP16) { this->Run(); }
+TYPED_TEST_SUITE(TestBatchedGemmSoftmaxGemmFP16, KernelTypes);
+
+TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, Test_FP16) { this->Run(); }
+
+TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, DISABLED_Bench_FP16) {
+    this->lengths_ = std::vector<std::vector<int>>{
+        {256, 256, 64, 64, 768},
+        {256, 256, 128, 128, 768},
+        {512, 512, 64, 64, 768},
+        {512, 512, 128, 128, 768},
+        {1024, 1024, 64, 64, 768},
+        {1024, 1024, 128, 128, 768},
+        {2048, 2048, 64, 64, 768},
+        {2048, 2048, 128, 128, 768},
+        {4096, 4096, 64, 64, 768},
+        {4096, 4096, 128, 128, 768},
+    };
+    this->bench_ = true;
+    this->verify_ = false;
+    this->Run();
+}

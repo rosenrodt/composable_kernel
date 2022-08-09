@@ -7,7 +7,7 @@
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
-#include "ck/tensor_operation/gpu/device/device_batched_gemm_gemm.hpp"
+#include "ck/tensor_operation/gpu/device/device_batched_gemm_softmax_gemm.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
 #include "ck/library/tensor_operation_instance/device_operation_instance_factory.hpp"
@@ -18,18 +18,18 @@ namespace device {
 namespace instance {
 
 void add_device_batched_gemm_softmax_gemm_xdl_cshuffle_f16_f16_f16_f16_gmk_gnk_gmo_instance(
-    std::vector<std::unique_ptr<DeviceBatchedGemmGemm<Row,
-                                                      Col,
-                                                      Row,
-                                                      Row,
-                                                      F16,
-                                                      F16,
-                                                      F16,
-                                                      F16,
-                                                      PassThrough,
-                                                      PassThrough,
-                                                      PassThrough,
-                                                      PassThrough>>>& instances);
+    std::vector<std::unique_ptr<DeviceBatchedGemmSoftmaxGemm<Row,
+                                                             Col,
+                                                             Row,
+                                                             Row,
+                                                             F16,
+                                                             F16,
+                                                             F16,
+                                                             F16,
+                                                             PassThrough,
+                                                             PassThrough,
+                                                             PassThrough,
+                                                             PassThrough>>>& instances);
 
 template <typename ALayout,
           typename B0Layout,
@@ -39,7 +39,7 @@ template <typename ALayout,
           typename B0DataType,
           typename B1DataType,
           typename CDataType>
-struct DeviceOperationInstanceFactory<ck::tensor_operation::device::DeviceBatchedGemmGemm<
+struct DeviceOperationInstanceFactory<ck::tensor_operation::device::DeviceBatchedGemmSoftmaxGemm<
     ALayout,
     B0Layout,
     B1Layout,
@@ -53,18 +53,18 @@ struct DeviceOperationInstanceFactory<ck::tensor_operation::device::DeviceBatche
     tensor_operation::element_wise::PassThrough,
     tensor_operation::element_wise::PassThrough>>
 {
-    using DeviceOp = DeviceBatchedGemmGemm<ALayout,
-                                           B0Layout,
-                                           B1Layout,
-                                           CLayout,
-                                           ADataType,
-                                           B0DataType,
-                                           B1DataType,
-                                           CDataType,
-                                           tensor_operation::element_wise::PassThrough,
-                                           tensor_operation::element_wise::PassThrough,
-                                           tensor_operation::element_wise::PassThrough,
-                                           tensor_operation::element_wise::PassThrough>;
+    using DeviceOp = DeviceBatchedGemmSoftmaxGemm<ALayout,
+                                                  B0Layout,
+                                                  B1Layout,
+                                                  CLayout,
+                                                  ADataType,
+                                                  B0DataType,
+                                                  B1DataType,
+                                                  CDataType,
+                                                  tensor_operation::element_wise::PassThrough,
+                                                  tensor_operation::element_wise::PassThrough,
+                                                  tensor_operation::element_wise::PassThrough,
+                                                  tensor_operation::element_wise::PassThrough>;
 
     static auto GetInstances()
     {
