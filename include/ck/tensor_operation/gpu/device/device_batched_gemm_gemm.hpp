@@ -64,18 +64,18 @@ template <typename ALayout,
           typename B0ElementwiseOperation,
           typename B1ElementwiseOperation,
           typename CElementwiseOperation>
-using DeviceBatchedGemmPtr = std::unique_ptr<DeviceBatchedGemmGemm<ALayout,
-                                                                   B0Layout,
-                                                                   B1Layout,
-                                                                   CLayout,
-                                                                   ADataType,
-                                                                   B0DataType,
-                                                                   B1DataType,
-                                                                   CDataType,
-                                                                   AElementwiseOperation,
-                                                                   B0ElementwiseOperation,
-                                                                   B1ElementwiseOperation,
-                                                                   CElementwiseOperation>>;
+using DeviceBatchedGemmGemmPtr = std::unique_ptr<DeviceBatchedGemmGemm<ALayout,
+                                                                       B0Layout,
+                                                                       B1Layout,
+                                                                       CLayout,
+                                                                       ADataType,
+                                                                       B0DataType,
+                                                                       B1DataType,
+                                                                       CDataType,
+                                                                       AElementwiseOperation,
+                                                                       B0ElementwiseOperation,
+                                                                       B1ElementwiseOperation,
+                                                                       CElementwiseOperation>>;
 
 } // namespace device
 } // namespace tensor_operation
