@@ -26,7 +26,8 @@ TYPED_TEST_SUITE(TestBatchedGemmSoftmaxGemmFP16, KernelTypes);
 
 TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, Test_FP16) { this->Run(); }
 
-TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, DISABLED_Bench_FP16) {
+TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, DISABLED_Bench_FP16)
+{
     this->lengths_ = std::vector<std::vector<int>>{
         {256, 256, 64, 64, 768},
         {256, 256, 128, 128, 768},
@@ -39,7 +40,7 @@ TYPED_TEST(TestBatchedGemmSoftmaxGemmFP16, DISABLED_Bench_FP16) {
         {4096, 4096, 64, 64, 768},
         {4096, 4096, 128, 128, 768},
     };
-    this->bench_ = true;
+    this->bench_  = true;
     this->verify_ = false;
     this->Run();
 }

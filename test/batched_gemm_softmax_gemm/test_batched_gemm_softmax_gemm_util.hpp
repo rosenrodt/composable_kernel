@@ -31,7 +31,7 @@ struct TestBatchedGemmSoftmaxGemm : public ::testing::Test
         {1024, 1024, 64, 64, 1},
         {1024, 1024, 128, 128, 1},
     };
-    bool bench_ = false;
+    bool bench_  = false;
     bool verify_ = true;
 
     void RunSingle(int M, int N, int K, int O, int BatchCount)
