@@ -144,19 +144,12 @@ int main(int argc, char* argv[])
     bool time_kernel     = false;
 
     // GEMM shape
-    ck::index_t M             = 1024;
-    ck::index_t N             = 1024;
-    ck::index_t K             = 64;
-    ck::index_t O             = 128;
-    ck::index_t BatchCount    = 4;
-    ck::index_t StrideA       = -1;
-    ck::index_t StrideB0      = -1;
-    ck::index_t StrideB1      = -1;
-    ck::index_t StrideC       = -1;
-    ck::index_t BatchStrideA  = -1;
-    ck::index_t BatchStrideB0 = -1;
-    ck::index_t BatchStrideB1 = -1;
-    ck::index_t BatchStrideC  = -1;
+    ck::index_t M  = 1024;
+    ck::index_t N  = 1024;
+    ck::index_t K  = 64;
+    ck::index_t O  = 128;
+    ck::index_t G0 = 3;
+    ck::index_t G1 = 7;
 
     if(argc == 1)
     {
@@ -168,7 +161,7 @@ int main(int argc, char* argv[])
         init_method     = std::stoi(argv[2]);
         time_kernel     = std::stoi(argv[3]);
     }
-    else if(argc == 9)
+    else if(argc == 10)
     {
         do_verification = std::stoi(argv[1]);
         init_method     = std::stoi(argv[2]);
@@ -179,60 +172,52 @@ int main(int argc, char* argv[])
         K = std::stoi(argv[6]);
         O = std::stoi(argv[7]);
 
-        BatchCount = std::stoi(argv[8]);
-    }
-    else if(argc == 17)
-    {
-        do_verification = std::stoi(argv[1]);
-        init_method     = std::stoi(argv[2]);
-        time_kernel     = std::stoi(argv[3]);
-
-        M = std::stoi(argv[4]);
-        N = std::stoi(argv[5]);
-        K = std::stoi(argv[6]);
-        O = std::stoi(argv[7]);
-
-        BatchCount = std::stoi(argv[8]);
-
-        StrideA  = std::stoi(argv[9]);
-        StrideB0 = std::stoi(argv[10]);
-        StrideB1 = std::stoi(argv[11]);
-        StrideC  = std::stoi(argv[12]);
-
-        BatchStrideA  = std::stoi(argv[13]);
-        BatchStrideB0 = std::stoi(argv[14]);
-        BatchStrideB1 = std::stoi(argv[15]);
-        BatchStrideC  = std::stoi(argv[16]);
+        G0 = std::stoi(argv[8]);
+        G1 = std::stoi(argv[9]);
     }
     else
     {
         printf("arg1: verification (0=no, 1=yes)\n");
         printf("arg2: initialization (0=no init, 1=integer value, 2=decimal value)\n");
         printf("arg3: time kernel (0=no, 1=yes)\n");
-        printf("arg4 to 17: M, N, K, O, Batch, StrideA, StrideB0, StrideB1, StrideC, BatchStrideA, "
-               "BatchStrideB0, BatchStrideB1, BatchStrideC\n");
+        printf("arg4 to 10: M, N, K, O, G0, G1\n");
         exit(0);
     }
 
-    const int DefaultStrideA  = ck::is_same_v<ALayout, Row> ? K : M;
-    const int DefaultStrideB0 = ck::is_same_v<B0Layout, Row> ? N : K;
-    const int DefaultStrideB1 = ck::is_same_v<B1Layout, Row> ? O : N;
-    const int DefaultStrideC  = ck::is_same_v<CLayout, Row> ? O : M;
+    const int StrideA  = ck::is_same_v<ALayout, Row> ? K : M;
+    const int StrideB0 = ck::is_same_v<B0Layout, Row> ? N : K;
+    const int StrideB1 = ck::is_same_v<B1Layout, Row> ? O : N;
+    const int StrideC  = ck::is_same_v<CLayout, Row> ? O : M;
 
-    StrideA  = (StrideA < 0) ? DefaultStrideA : StrideA;
-    StrideB0 = (StrideB0 < 0) ? DefaultStrideB0 : StrideB0;
-    StrideB1 = (StrideB1 < 0) ? DefaultStrideB1 : StrideB1;
-    StrideC  = (StrideC < 0) ? DefaultStrideC : StrideC;
+    const int BatchStrideA  = (ck::is_same_v<ALayout, Col> ? K : M) * StrideA;
+    const int BatchStrideB0 = (ck::is_same_v<B0Layout, Col> ? N : K) * StrideB0;
+    const int BatchStrideB1 = (ck::is_same_v<B1Layout, Col> ? O : N) * StrideB1;
+    const int BatchStrideC  = (ck::is_same_v<CLayout, Col> ? O : M) * StrideC;
 
-    const int DefaultBatchStrideA  = (ck::is_same_v<ALayout, Col> ? K : M) * StrideA;
-    const int DefaultBatchStrideB0 = (ck::is_same_v<B0Layout, Col> ? N : K) * StrideB0;
-    const int DefaultBatchStrideB1 = (ck::is_same_v<B1Layout, Col> ? O : N) * StrideB1;
-    const int DefaultBatchStrideC  = (ck::is_same_v<CLayout, Col> ? O : M) * StrideC;
+    const int BatchCount = G0 * G1;
 
-    BatchStrideA  = BatchStrideA < 0 ? DefaultBatchStrideA : BatchStrideA;
-    BatchStrideB0 = BatchStrideB0 < 0 ? DefaultBatchStrideB0 : BatchStrideB0;
-    BatchStrideB1 = BatchStrideB1 < 0 ? DefaultBatchStrideB1 : BatchStrideB1;
-    BatchStrideC  = BatchStrideC < 0 ? DefaultBatchStrideC : BatchStrideC;
+    // output layout row major C - [G0, M, G1, O]
+    //               col major C - [G0, O, G1, M]
+    const int StrideC_G0 = G1 * BatchStrideC;
+    const int StrideC_G1 = StrideC;
+    const int StrideC_M  = ck::is_same_v<CLayout, Col> ? 1 : G1 * StrideC;
+    const int StrideC_O  = ck::is_same_v<CLayout, Row> ? 1 : G1 * StrideC;
+
+    ck::tensor_operation::device::CPermuteDesc_G0_G1_M_O c_permute_desc{
+        G0, G1, M, O, StrideC_G0, StrideC_G1, StrideC_M, StrideC_O};
+
+    auto f_host_c_tensor_descriptor = [](std::size_t G0_,
+                                         std::size_t G1_,
+                                         std::size_t M_,
+                                         std::size_t N_,
+                                         std::size_t stride_G0_,
+                                         std::size_t stride_G1_,
+                                         std::size_t stride_M_,
+                                         std::size_t stride_N_) {
+        return HostTensorDescriptor(
+            std::vector<std::size_t>({G0_, G1_, M_, N_}),
+            std::vector<std::size_t>({stride_G0_, stride_G1_, stride_M_, stride_N_}));
+    };
 
     auto f_host_tensor_descriptor = [](std::size_t batch_count,
                                        std::size_t row,
@@ -259,15 +244,15 @@ int main(int argc, char* argv[])
         f_host_tensor_descriptor(BatchCount, K, N, StrideB0, BatchStrideB0, B0Layout{}));
     Tensor<B1DataType> b1_g_n_o(
         f_host_tensor_descriptor(BatchCount, N, O, StrideB1, BatchStrideB1, B1Layout{}));
-    Tensor<CDataType> c_g_m_o_host_result(
-        f_host_tensor_descriptor(BatchCount, M, O, StrideC, BatchStrideC, CLayout{}));
-    Tensor<CDataType> c_g_m_o_device_result(
-        f_host_tensor_descriptor(BatchCount, M, O, StrideC, BatchStrideC, CLayout{}));
+    Tensor<CDataType> c_g0_g1_m_o_host_result(
+        f_host_c_tensor_descriptor(G0, G1, M, O, StrideC_G0, StrideC_G1, StrideC_M, StrideC_O));
+    Tensor<CDataType> c_g0_g1_m_o_device_result(
+        f_host_c_tensor_descriptor(G0, G1, M, O, StrideC_G0, StrideC_G1, StrideC_M, StrideC_O));
 
     std::cout << "a_g_m_k: " << a_g_m_k.mDesc << std::endl;
     std::cout << "b0_g_k_n: " << b0_g_k_n.mDesc << std::endl;
     std::cout << "b1_g_n_o: " << b1_g_n_o.mDesc << std::endl;
-    std::cout << "c_g_m_o: " << c_g_m_o_host_result.mDesc << std::endl;
+    std::cout << "c_g0_g1_m_o: " << c_g0_g1_m_o_host_result.mDesc << std::endl;
 
     switch(init_method)
     {
@@ -296,7 +281,8 @@ int main(int argc, char* argv[])
     DeviceMem a_g_m_k_device_buf(sizeof(ADataType) * a_g_m_k.mDesc.GetElementSize());
     DeviceMem b0_g_k_n_device_buf(sizeof(B0DataType) * b0_g_k_n.mDesc.GetElementSize());
     DeviceMem b1_g_n_o_device_buf(sizeof(B1DataType) * b1_g_n_o.mDesc.GetElementSize());
-    DeviceMem c_g_m_o_device_buf(sizeof(CDataType) * c_g_m_o_device_result.mDesc.GetElementSize());
+    DeviceMem c_g0_g1_m_o_device_buf(sizeof(CDataType) *
+                                     c_g0_g1_m_o_device_result.mDesc.GetElementSize());
 
     a_g_m_k_device_buf.ToDevice(a_g_m_k.mData.data());
     b0_g_k_n_device_buf.ToDevice(b0_g_k_n.mData.data());
@@ -315,20 +301,18 @@ int main(int argc, char* argv[])
         gemm.MakeArgument(static_cast<ADataType*>(a_g_m_k_device_buf.GetDeviceBuffer()),
                           static_cast<B0DataType*>(b0_g_k_n_device_buf.GetDeviceBuffer()),
                           static_cast<B1DataType*>(b1_g_n_o_device_buf.GetDeviceBuffer()),
-                          static_cast<CDataType*>(c_g_m_o_device_buf.GetDeviceBuffer()),
+                          static_cast<CDataType*>(c_g0_g1_m_o_device_buf.GetDeviceBuffer()),
                           M,
                           N,
                           K,
                           O,
-                          BatchCount,
                           StrideA,
                           StrideB0,
                           StrideB1,
-                          StrideC,
                           BatchStrideA,
                           BatchStrideB0,
                           BatchStrideB1,
-                          BatchStrideC,
+                          c_permute_desc,
                           a_element_op,
                           b0_element_op,
                           acc0_element_op,
@@ -356,7 +340,7 @@ int main(int argc, char* argv[])
     std::cout << "Perf: " << ave_time << " ms, " << tflops << " TFlops, " << gb_per_sec << " GB/s, "
               << gemm.GetTypeString() << std::endl;
 
-    c_g_m_o_device_buf.FromDevice(c_g_m_o_device_result.mData.data());
+    c_g0_g1_m_o_device_buf.FromDevice(c_g0_g1_m_o_device_result.mData.data());
 
     if(do_verification)
     {
@@ -364,6 +348,9 @@ int main(int argc, char* argv[])
         Tensor<AccDataType> acc0_g_m_n(f_host_tensor_descriptor(BatchCount, M, N, N, M * N, Row{}));
 
         Tensor<ADataType> a1_g_m_n(f_host_tensor_descriptor(BatchCount, M, N, N, M * N, Row{}));
+
+        Tensor<CDataType> c_g_m_o_host_result(
+            f_host_tensor_descriptor(BatchCount, M, O, O, M * O, Row{}));
 
         auto ref_gemm0          = ReferenceGemm0Instance{};
         auto ref_gemm0_invoker  = ref_gemm0.MakeInvoker();
@@ -385,7 +372,25 @@ int main(int argc, char* argv[])
 
         ref_gemm1_invoker.Run(ref_gemm1_argument);
 
-        return ck::utils::check_err(c_g_m_o_device_result.mData, c_g_m_o_host_result.mData) ? 0 : 1;
+        for(int g0 = 0; g0 < G0; g0++)
+        {
+            for(int g1 = 0; g1 < G1; g1++)
+            {
+                for(int m = 0; m < M; m++)
+                {
+                    for(int o = 0; o < O; o++)
+                    {
+                        int g = g0 * G1 + g1;
+
+                        c_g0_g1_m_o_host_result(g0, g1, m, o) = c_g_m_o_host_result(g, m, o);
+                    }
+                }
+            }
+        }
+
+        return ck::utils::check_err(c_g0_g1_m_o_device_result.mData, c_g0_g1_m_o_host_result.mData)
+                   ? 0
+                   : 1;
     }
 
     return 0;

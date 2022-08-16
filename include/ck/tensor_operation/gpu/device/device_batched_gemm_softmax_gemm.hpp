@@ -12,6 +12,12 @@ namespace ck {
 namespace tensor_operation {
 namespace device {
 
+struct CPermuteDesc_G0_G1_M_O
+{
+    ck::index_t G0_, G1_, M_, O_;
+    ck::index_t stride_G0_, stride_G1_, stride_M_, stride_O_;
+};
+
 template <typename ALayout,
           typename B0Layout,
           typename B1Layout,
@@ -20,6 +26,7 @@ template <typename ALayout,
           typename B0DataType,
           typename B1DataType,
           typename CDataType,
+          typename CPermuteDesc_G0_G1_M_O,
           typename AElementwiseOperation,
           typename B0ElementwiseOperation,
           typename Acc0ElementwiseOperation,
@@ -36,15 +43,13 @@ struct DeviceBatchedGemmSoftmaxGemm : public BaseOperator
                         ck::index_t N,
                         ck::index_t K,
                         ck::index_t O,
-                        ck::index_t Batch,
                         ck::index_t StrideA,
                         ck::index_t StrideB0,
                         ck::index_t StrideB1,
-                        ck::index_t StrideC,
                         ck::index_t BatchStrideA,
                         ck::index_t BatchStrideB0,
                         ck::index_t BatchStrideB1,
-                        ck::index_t BatchStrideC,
+                        CPermuteDesc_G0_G1_M_O c_permute_desc,
                         AElementwiseOperation a_element_op,
                         B0ElementwiseOperation b0_element_op,
                         Acc0ElementwiseOperation acc0_element_op,
@@ -62,6 +67,7 @@ template <typename ALayout,
           typename B0DataType,
           typename B1DataType,
           typename CDataType,
+          typename CPermuteDesc_G0_G1_M_O,
           typename AElementwiseOperation,
           typename B0ElementwiseOperation,
           typename Acc0ElementwiseOperation,
@@ -76,6 +82,7 @@ using DeviceBatchedGemmSoftmaxGemmPtr =
                                                  B0DataType,
                                                  B1DataType,
                                                  CDataType,
+                                                 CPermuteDesc_G0_G1_M_O,
                                                  AElementwiseOperation,
                                                  B0ElementwiseOperation,
                                                  Acc0ElementwiseOperation,

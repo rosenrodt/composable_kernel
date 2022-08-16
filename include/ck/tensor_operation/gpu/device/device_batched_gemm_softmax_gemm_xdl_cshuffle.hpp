@@ -177,6 +177,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                           BDataType,
                                           B1DataType,
                                           CDataType,
+                                          CPermuteDesc_G0_G1_M_O,
                                           AElementwiseOperation,
                                           BElementwiseOperation,
                                           AccElementwiseOperation,
@@ -504,16 +505,23 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         }
     }
 
+    using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1(1, 1, 1));
+    using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1(1, 1, 1));
+    using B1GridDesc_BK0_N_BK1 = decltype(MakeB1GridDescriptor_BK0_N_BK1(1, 1, 1));
+    using CGridDesc_M_N        = decltype(MakeCGridDescriptor_M_N(1, 1, 1));
+    using CGridDesc_G0_G1_M_N =
+        decltype(make_naive_tensor_descriptor(make_tuple(1, 1, 1, 1), make_tuple(1, 1, 1, 1)));
+
     struct ComputeBasePtrOfStridedBatch
     {
         ComputeBasePtrOfStridedBatch(index_t BatchStrideA,
                                      index_t BatchStrideB,
                                      index_t BatchStrideB1,
-                                     index_t BatchStrideC)
+                                     CGridDesc_G0_G1_M_N c_grid_desc_g0_g1_m_n)
             : BatchStrideA_(BatchStrideA),
               BatchStrideB_(BatchStrideB),
               BatchStrideB1_(BatchStrideB1),
-              BatchStrideC_(BatchStrideC)
+              c_grid_desc_g0_g1_m_n_(c_grid_desc_g0_g1_m_n)
         {
         }
 
@@ -534,20 +542,18 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
         __host__ __device__ constexpr long_index_t GetCBasePtr(index_t g_idx) const
         {
-            return g_idx * static_cast<long_index_t>(BatchStrideC_);
+            const index_t G1 = c_grid_desc_g0_g1_m_n_.GetLength(I1);
+            const index_t b0 = g_idx / G1;
+            const index_t b1 = g_idx - b0 * G1; // g_idx % G1
+            return c_grid_desc_g0_g1_m_n_.CalculateOffset(make_multi_index(b0, b1, 0, 0));
         }
 
         private:
         index_t BatchStrideA_;
         index_t BatchStrideB_;
         index_t BatchStrideB1_;
-        index_t BatchStrideC_;
+        CGridDesc_G0_G1_M_N c_grid_desc_g0_g1_m_n_;
     };
-
-    using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1(1, 1, 1));
-    using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1(1, 1, 1));
-    using B1GridDesc_BK0_N_BK1 = decltype(MakeB1GridDescriptor_BK0_N_BK1(1, 1, 1));
-    using CGridDesc_M_N        = decltype(MakeCGridDescriptor_M_N(1, 1, 1));
 
     // GridwiseGemm
     using GridwiseGemm = GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle<
@@ -621,15 +627,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                  index_t NRaw,
                  index_t KRaw,
                  index_t Gemm1NRaw, // = ORaw
-                 index_t Batch,
                  index_t StrideA,
                  index_t StrideB,
                  index_t StrideB1,
-                 index_t StrideC,
                  index_t BatchStrideA,
                  index_t BatchStrideB,
                  index_t BatchStrideB1,
-                 index_t BatchStrideC,
+                 CPermuteDesc_G0_G1_M_O c_permute_desc,
                  AElementwiseOperation a_element_op,
                  BElementwiseOperation b_element_op,
                  AccElementwiseOperation acc_element_op,
@@ -643,16 +647,28 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
               b_grid_desc_bk0_n_bk1_{DeviceOp::MakeBGridDescriptor_BK0_N_BK1(KRaw, NRaw, StrideB)},
               b1_grid_desc_bk0_n_bk1_{
                   DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(NRaw, Gemm1NRaw, StrideB1)},
-              c_grid_desc_m_n_{DeviceOp::MakeCGridDescriptor_M_N(MRaw, Gemm1NRaw, StrideC)},
+              c_grid_desc_m_n_{DeviceOp::MakeCGridDescriptor_M_N(
+                  MRaw,
+                  Gemm1NRaw,
+                  is_same_v<CLayout, tensor_layout::gemm::RowMajor> ? c_permute_desc.stride_M_
+                                                                    : c_permute_desc.stride_O_)},
               c_grid_desc_mblock_mperblock_nblock_nperblock_{},
+              c_grid_desc_g0_g1_m_n_{make_naive_tensor_descriptor(
+                  make_tuple(
+                      c_permute_desc.G0_, c_permute_desc.G1_, c_permute_desc.M_, c_permute_desc.O_),
+                  make_tuple(c_permute_desc.stride_G0_,
+                             c_permute_desc.stride_G1_,
+                             c_permute_desc.stride_M_,
+                             c_permute_desc.stride_O_))},
               block_2_ctile_map_{GridwiseGemm::MakeDefaultBlock2CTileMap(c_grid_desc_m_n_)},
               a_element_op_{a_element_op},
               b_element_op_{b_element_op},
               acc_element_op_{acc_element_op},
               b1_element_op_{b1_element_op},
               c_element_op_{c_element_op},
-              batch_count_(Batch),
-              compute_base_ptr_of_batch_{BatchStrideA, BatchStrideB, BatchStrideB1, BatchStrideC}
+              batch_count_(c_permute_desc.G0_ * c_permute_desc.G1_),
+              compute_base_ptr_of_batch_{
+                  BatchStrideA, BatchStrideB, BatchStrideB1, c_grid_desc_g0_g1_m_n_}
         {
             if(GridwiseGemm::CheckValidity(a_grid_desc_ak0_m_ak1_,
                                            b_grid_desc_bk0_n_bk1_,
@@ -677,6 +693,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         CGridDesc_M_N c_grid_desc_m_n_;
         typename GridwiseGemm::CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
             c_grid_desc_mblock_mperblock_nblock_nperblock_;
+        CGridDesc_G0_G1_M_N c_grid_desc_g0_g1_m_n_; // no bound check; for batch calc only
         typename GridwiseGemm::DefaultBlock2CTileMap block_2_ctile_map_;
         AElementwiseOperation a_element_op_;
         BElementwiseOperation b_element_op_;
@@ -809,26 +826,23 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                              index_t NRaw,
                              index_t KRaw,
                              index_t Gemm1NRaw,
-                             index_t Batch,
                              index_t StrideA,
                              index_t StrideB,
                              index_t StrideB1,
-                             index_t StrideC,
                              index_t BatchStrideA,
                              index_t BatchStrideB,
                              index_t BatchStrideB1,
-                             index_t BatchStrideC,
+                             CPermuteDesc_G0_G1_M_O c_permute_desc,
                              AElementwiseOperation a_element_op,
                              BElementwiseOperation b_element_op,
                              AccElementwiseOperation acc_element_op,
                              B1ElementwiseOperation b1_element_op,
                              CElementwiseOperation c_element_op)
     {
-        return Argument{p_a,           p_b,          p_b1,         p_c,          MRaw,
-                        NRaw,          KRaw,         Gemm1NRaw,    Batch,        StrideA,
-                        StrideB,       StrideB1,     StrideC,      BatchStrideA, BatchStrideB,
-                        BatchStrideB1, BatchStrideC, a_element_op, b_element_op, acc_element_op,
-                        b1_element_op, c_element_op};
+        return Argument{p_a,          p_b,          p_b1,           p_c,           MRaw,
+                        NRaw,         KRaw,         Gemm1NRaw,      StrideA,       StrideB,
+                        StrideB1,     BatchStrideA, BatchStrideB,   BatchStrideB1, c_permute_desc,
+                        a_element_op, b_element_op, acc_element_op, b1_element_op, c_element_op};
     }
 
     static auto MakeInvoker() { return Invoker{}; }
@@ -842,15 +856,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                       index_t NRaw,
                                                       index_t KRaw,
                                                       index_t Gemm1NRaw,
-                                                      index_t Batch,
                                                       index_t StrideA,
                                                       index_t StrideB,
                                                       index_t StrideB1,
-                                                      index_t StrideC,
                                                       index_t BatchStrideA,
                                                       index_t BatchStrideB,
                                                       index_t BatchStrideB1,
-                                                      index_t BatchStrideC,
+                                                      CPermuteDesc_G0_G1_M_O c_permute_desc,
                                                       AElementwiseOperation a_element_op,
                                                       BElementwiseOperation b_element_op,
                                                       AccElementwiseOperation acc_element_op,
@@ -865,15 +877,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                           NRaw,
                                           KRaw,
                                           Gemm1NRaw,
-                                          Batch,
                                           StrideA,
                                           StrideB,
                                           StrideB1,
-                                          StrideC,
                                           BatchStrideA,
                                           BatchStrideB,
                                           BatchStrideB1,
-                                          BatchStrideC,
+                                          c_permute_desc,
                                           a_element_op,
                                           b_element_op,
                                           acc_element_op,
