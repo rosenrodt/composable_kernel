@@ -44,7 +44,7 @@ using AElementOp   = ck::tensor_operation::element_wise::PassThrough;
 using BElementOp   = ck::tensor_operation::element_wise::PassThrough;
 using CDEElementOp = ck::tensor_operation::element_wise::Add;
 
-static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::Default;
+static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::MNPadding;
 
 static constexpr auto ABSpec = ck::tensor_operation::device::TensorSpecialization::Packed;
 static constexpr auto DESpec = ck::tensor_operation::device::TensorSpecialization::Default;
@@ -205,10 +205,10 @@ int main(int argc, char* argv[])
     ck::index_t G0 = 1;
 
     ck::index_t M0 = 4;
-    ck::index_t M1 = 256;
+    ck::index_t M1 = 257;
 
     ck::index_t N0 = 4;
-    ck::index_t N1 = 16;
+    ck::index_t N1 = 17;
     ck::index_t N2 = 32;
 
     ck::index_t K0 = 256;
@@ -322,7 +322,7 @@ int main(int argc, char* argv[])
     {
         std::cout << op.GetTypeString() << " does not support this problem" << std::endl;
 
-        return 0;
+        return 1;
     }
 
     float ave_time = invoker.Run(argument, StreamConfig{nullptr, time_kernel});
