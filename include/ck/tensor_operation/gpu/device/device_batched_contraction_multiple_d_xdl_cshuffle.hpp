@@ -342,6 +342,23 @@ struct DeviceBatchedContractionMultipleD_Xdl_CShuffle
         // lengths for K0, K1, ...
         const auto nLengths = get_container_subset(e_ms_ns_lengths, nDimIds);
 
+        // FIXME: TensorSpecialization::Packed specialization assumes default dimension ordering
+        //
+        // This implementation has yet to expose dimension order to the interface so legit packed
+        // tensor with transposed dimension order will be viewed as having default dimension order
+        // (ie ignoring tensor strides) by the specialization TensorSpecialization::Packed
+        //
+        // Detail: Packed tensor satisfies
+        //   stride_0 = 1
+        //   stride_i = stride_(i - 1) * extent_(i - 1)
+        // So tensor
+        //   [G0, G1, G2, M, N]
+        // transposed into tensor
+        //   [G0, G2, G1, M, N]
+        // with strides
+        //   [G2 * G1 * M * N, G1 * M * N, M * N, N, 1]
+        // is again a packed tensor. The issue lies where the code below re-calculates strides from
+        // input tensor extents so dimension order is effectively lost
         if constexpr(DESpec == TensorSpecialization::Packed)
         {
             auto M = container_reduce(mLengths, math::multiplies{}, Number<1>{});
