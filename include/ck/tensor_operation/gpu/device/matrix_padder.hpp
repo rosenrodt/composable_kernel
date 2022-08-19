@@ -49,11 +49,6 @@ template <GemmSpecialization GemmSpec,
           typename KPerTileType>
 struct MatrixPadder
 {
-    static constexpr auto I0 = Number<0>{};
-    static constexpr auto I1 = Number<1>{};
-    static constexpr auto I2 = Number<2>{};
-    static constexpr auto I3 = Number<3>{};
-
     static constexpr bool PadM =
         (GemmSpec == GemmSpecialization::MPadding || GemmSpec == GemmSpecialization::MNPadding ||
          GemmSpec == GemmSpecialization::MKPadding || GemmSpec == GemmSpecialization::MNKPadding);
