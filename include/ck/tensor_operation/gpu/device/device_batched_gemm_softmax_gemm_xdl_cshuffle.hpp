@@ -167,6 +167,7 @@ template <typename ALayout,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
+          typename CPermuteNumDims_G_M_Gemm1N = Sequence<1, 1, 1>, // <NumDimG, NumDimM, NumDimGemm1N (=NumDimO)>
           LoopScheduler LoopSched = LoopScheduler::Default>
 struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
     : public DeviceBatchedGemmSoftmaxGemm<ALayout,
@@ -446,61 +447,63 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         }
     }
 
-    static auto MakeCGridDescriptor_M_N(index_t MRaw, index_t NRaw, index_t StrideC)
+    // assume E[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+    static auto MakeCCridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
+                                        const std::vector<index_t>& c_gs_ms_ns_strides_vec)
     {
-        const auto c_grid_desc_mraw_nraw = [&]() {
-            if constexpr(is_same<tensor_layout::gemm::RowMajor, CLayout>::value)
-            {
-                return make_naive_tensor_descriptor(make_tuple(MRaw, NRaw),
-                                                    make_tuple(StrideC, I1));
-            }
-            else if constexpr(is_same<tensor_layout::gemm::ColumnMajor, CLayout>::value)
-            {
-                return make_naive_tensor_descriptor(make_tuple(MRaw, NRaw),
-                                                    make_tuple(I1, StrideC));
-            }
-        }();
+        constexpr index_t NumDimG = CPermuteNumDims_G_M_Gemm1N::At(I0);
+        constexpr index_t NumDimM = CPermuteNumDims_G_M_Gemm1N::At(I1);
+        constexpr index_t NumDimN = CPermuteNumDims_G_M_Gemm1N::At(I2); // NumDimGemm1N
 
-        const auto M = math::integer_divide_ceil(MRaw, MPerBlock) * MPerBlock;
-        const auto N = math::integer_divide_ceil(NRaw, Gemm1NPerBlock) * Gemm1NPerBlock;
+        assert(c_gs_ms_ns_lengths_vec.size() == NumDimG + NumDimM + NumDimN &&
+               c_gs_ms_ns_strides_vec.size() == NumDimG + NumDimM + NumDimN);
 
-        const auto MPad = M - MRaw;
-        const auto NPad = N - NRaw;
+        const auto to_tuple = [&](auto& vec, auto start, auto end) {
+            return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
+        };
 
-        if constexpr(GemmSpec == GemmSpecialization::MNPadding ||
-                     GemmSpec == GemmSpecialization::MNKPadding)
+        const auto c_ms_ns_lengths = to_tuple(
+            c_gs_ms_ns_lengths_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
+        const auto c_ms_ns_strides = to_tuple(
+            c_gs_ms_ns_strides_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
+
+        // dimension Ids for M0, M1, ...
+        constexpr auto mDimIds = typename arithmetic_sequence_gen<0, NumDimM, 1>::type{};
+
+        // dimension Ids for N0, N1, ...
+        constexpr auto nDimIds =
+            typename arithmetic_sequence_gen<NumDimM, NumDimM + NumDimN, 1>::type{};
+
+        // lengths for M0, M1, ...
+        const auto mLengths = get_container_subset(c_ms_ns_lengths, mDimIds);
+
+        // lengths for K0, K1, ...
+        const auto nLengths = get_container_subset(c_ms_ns_lengths, nDimIds);
+
+        if constexpr(CSpec == TensorSpecialization::Packed)
         {
-            // pad M and N
-            return transform_tensor_descriptor(c_grid_desc_mraw_nraw,
-                                               make_tuple(make_right_pad_transform(MRaw, MPad),
-                                                          make_right_pad_transform(NRaw, NPad)),
-                                               make_tuple(Sequence<0>{}, Sequence<1>{}),
-                                               make_tuple(Sequence<0>{}, Sequence<1>{}));
+            auto M = container_reduce(mLengths, math::multiplies{}, Number<1>{});
+            auto N = container_reduce(nLengths, math::multiplies{}, Number<1>{});
+            const auto c_grid_desc_mraw_nraw = make_naive_tensor_descriptor(
+                make_tuple(M, N),
+                make_tuple(c_ms_ns_strides[Number<NumDimM - 1>{}],
+                           c_ms_ns_strides[Number<NumDimM + NumDimN - 1>{}]));
+            return matrix_padder.PadCDescriptor_M_N(c_grid_desc_mraw_nraw);
         }
-        else if constexpr(GemmSpec == GemmSpecialization::MPadding ||
-                          GemmSpec == GemmSpecialization::MKPadding)
+        else //
         {
-            // pad M, but not N
-            return transform_tensor_descriptor(
-                c_grid_desc_mraw_nraw,
-                make_tuple(make_right_pad_transform(MRaw, MPad), make_pass_through_transform(NRaw)),
-                make_tuple(Sequence<0>{}, Sequence<1>{}),
+            // naive tensor E[M0, M1, M2, ..., N0, N1, N2...]
+            const auto c_grid_desc_ms_ns =
+                make_naive_tensor_descriptor(c_ms_ns_lengths, c_ms_ns_strides);
+
+            // transformed tensor E[MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 * N2 * ...]
+            const auto c_grid_desc_mraw_nraw = transform_tensor_descriptor(
+                c_grid_desc_ms_ns,
+                make_tuple(make_merge_transform(mLengths), make_merge_transform(nLengths)),
+                make_tuple(mDimIds, nDimIds),
                 make_tuple(Sequence<0>{}, Sequence<1>{}));
-        }
-        else if constexpr(GemmSpec == GemmSpecialization::NPadding ||
-                          GemmSpec == GemmSpecialization::NKPadding)
-        {
-            // pad N, but not M
-            return transform_tensor_descriptor(
-                c_grid_desc_mraw_nraw,
-                make_tuple(make_pass_through_transform(MRaw), make_right_pad_transform(NRaw, NPad)),
-                make_tuple(Sequence<0>{}, Sequence<1>{}),
-                make_tuple(Sequence<0>{}, Sequence<1>{}));
-        }
-        else
-        {
-            // not pad M or N
-            return c_grid_desc_mraw_nraw;
+
+            return matrix_padder.PadCDescriptor_M_N(c_grid_desc_mraw_nraw);
         }
     }
 
