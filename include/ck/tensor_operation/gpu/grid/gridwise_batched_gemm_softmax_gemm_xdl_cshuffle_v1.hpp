@@ -215,14 +215,19 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         const auto K = a_grid_desc_ak0_m_ak1.GetLength(I0) * a_grid_desc_ak0_m_ak1.GetLength(I2);
         const auto Gemm1N = b1_grid_desc_bk0_n_bk1.GetLength(I1);
 
+        std::cout << "M, N, K, O = " << M << ", " << N << ", " << K << ", " << Gemm1N << std::endl;
+        std::cout << "c_grid_desc_m_n = " << c_grid_desc_m_n.GetLength(I0) << ", " << c_grid_desc_m_n.GetLength(I1) << std::endl;
+
         if(!(M == c_grid_desc_m_n.GetLength(I0) && Gemm1N == c_grid_desc_m_n.GetLength(I1)))
         {
+            std::cout << "exit 1" << std::endl;
             return false;
         }
 
         if(!(M % MPerBlock == 0 && N % NPerBlock == 0 && K % KPerBlock == 0 &&
              Gemm1N % Gemm1NPerBlock == 0))
         {
+            std::cout << "exit 2" << std::endl;
             return false;
         }
 
@@ -230,25 +235,30 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         const auto num_gemm0_k_loop = K / KPerBlock;
         if(!GridwiseGemmPipe::IsSupported(num_gemm0_k_loop))
         {
+            std::cout << "exit 3" << std::endl;
             return false;
         }
 
         // check gemm1 gridwise gemm pipeline
         if(!(NPerBlock % Gemm1KPerBlock == 0))
         {
+            std::cout << "exit 4" << std::endl;
             return false;
         }
 
         const auto num_gemm1_k_inner_loop = NPerBlock / Gemm1KPerBlock;
         if(!GridwiseGemmPipe::IsSupported(num_gemm1_k_inner_loop))
         {
+            std::cout << "exit 5" << std::endl;
             return false;
         }
 
+        // FIXME ANT: fix variable not found
         assert(num_gemm1_k_outer_loop * num_gemm1_k_inner_loop == N / Gemm1KPerBlock);
 
         if(!block_2_ctile_map.CheckValidity(c_grid_desc_m_n))
         {
+            std::cout << "exit 6" << std::endl;
             return false;
         }
 

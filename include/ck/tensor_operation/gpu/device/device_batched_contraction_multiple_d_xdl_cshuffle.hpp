@@ -423,6 +423,7 @@ struct DeviceBatchedContractionMultipleD_Xdl_CShuffle
         // lengths for K0, K1, ...
         const auto nLengths = get_container_subset(e_gs_ms_ns_lengths, nDimIds);
 
+        // NOTE ANT: why isn't it padded? because this is for calculating batch only
         if constexpr(DESpec == TensorSpecialization::Packed)
         {
             auto G = container_reduce(gLengths, math::multiplies{}, Number<1>{});
@@ -504,6 +505,7 @@ struct DeviceBatchedContractionMultipleD_Xdl_CShuffle
 
         __host__ __device__ constexpr long_index_t GetAPtrOffset(index_t g_idx) const
         {
+            // NOTE ANT: now we are not using generic tensor again?
             return g_idx * static_cast<long_index_t>(batch_stride_A_);
         }
 
@@ -640,7 +642,7 @@ struct DeviceBatchedContractionMultipleD_Xdl_CShuffle
               b_kz_stride_{},
               ds_nz_stride_{},
               e_nz_stride_{},
-              a_batch_stride_{a_gs_ms_ks_strides[NumDimG - 1]},
+              a_batch_stride_{a_gs_ms_ks_strides[NumDimG - 1]}, // NOTE ANT: Assumes strictly decreasing strides?
               b_batch_stride_{b_gs_ns_ks_strides[NumDimG - 1]},
               compute_ptr_offset_of_batch_{
                   a_batch_stride_, b_batch_stride_, ds_grid_desc_g_m_n_, e_grid_desc_g_m_n_}

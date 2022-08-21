@@ -12,6 +12,8 @@
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/device/device_batched_gemm_softmax_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
+#include "ck/tensor_operation/gpu/device/tensor_specialization.hpp"
+#include "ck/tensor_operation/gpu/device/matrix_padder.hpp"
 #include "ck/tensor_operation/gpu/grid/gridwise_batched_gemm_softmax_gemm_xdl_cshuffle_v1.hpp"
 #include "ck/host_utility/device_prop.hpp"
 #include "ck/host_utility/kernel_launch.hpp"
@@ -114,7 +116,8 @@ __global__ void
 template <typename ALayout,
           typename BLayout, // B0Layout
           typename B1Layout,
-          typename CLayout,
+          typename CPermuteNumDims_G_M_Gemm1N, // Sequence<NumDimG, NumDimM, NumDimGemm1N>
+          TensorSpecialization CSpec,
           typename ADataType,
           typename BDataType,
           typename B1DataType,
@@ -167,28 +170,30 @@ template <typename ALayout,
           index_t CShuffleNXdlPerWavePerShuffle,
           typename CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock,
           index_t CShuffleBlockTransferScalarPerVector_NPerBlock,
-          typename CPermuteNumDims_G_M_Gemm1N = Sequence<1, 1, 1>, // <NumDimG, NumDimM, NumDimGemm1N (=NumDimO)>
           LoopScheduler LoopSched = LoopScheduler::Default>
-struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
-    : public DeviceBatchedGemmSoftmaxGemm<ALayout,
-                                          BLayout,
-                                          B1Layout,
-                                          CLayout,
-                                          ADataType,
-                                          BDataType,
-                                          B1DataType,
-                                          CDataType,
-                                          AElementwiseOperation,
-                                          BElementwiseOperation,
-                                          AccElementwiseOperation,
-                                          B1ElementwiseOperation,
-                                          CElementwiseOperation>
+struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle : public BaseOperator
+    // : public DeviceBatchedGemmSoftmaxGemm<ALayout,
+    //                                       BLayout,
+    //                                       B1Layout,
+    //                                       CLayout,
+    //                                       ADataType,
+    //                                       BDataType,
+    //                                       B1DataType,
+    //                                       CDataType,
+    //                                       AElementwiseOperation,
+    //                                       BElementwiseOperation,
+    //                                       AccElementwiseOperation,
+    //                                       B1ElementwiseOperation,
+    //                                       CElementwiseOperation>
 {
     using DeviceOp = DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle;
 
     static constexpr auto I0 = Number<0>{};
     static constexpr auto I1 = Number<1>{};
     static constexpr auto I2 = Number<2>{};
+
+    static constexpr auto matrix_padder =
+        GemmGemmPadder<GemmSpec, index_t, index_t, index_t, index_t>{MPerBlock, NPerBlock, KPerBlock, Gemm1NPerBlock};
 
     static auto MakeAGridDescriptor_AK0_M_AK1(index_t MRaw, index_t KRaw, index_t StrideA)
     {
@@ -447,8 +452,8 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         }
     }
 
-    // assume E[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
-    static auto MakeCCridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
+    // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+    static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
                                         const std::vector<index_t>& c_gs_ms_ns_strides_vec)
     {
         constexpr index_t NumDimG = CPermuteNumDims_G_M_Gemm1N::At(I0);
@@ -480,6 +485,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         // lengths for K0, K1, ...
         const auto nLengths = get_container_subset(c_ms_ns_lengths, nDimIds);
 
+        // FIXME: "Packed" actually means packed and un-permuted
         if constexpr(CSpec == TensorSpecialization::Packed)
         {
             auto M = container_reduce(mLengths, math::multiplies{}, Number<1>{});
@@ -490,13 +496,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                            c_ms_ns_strides[Number<NumDimM + NumDimN - 1>{}]));
             return matrix_padder.PadCDescriptor_M_N(c_grid_desc_mraw_nraw);
         }
-        else //
+        else
         {
-            // naive tensor E[M0, M1, M2, ..., N0, N1, N2...]
+            // naive tensor C[M0, M1, M2, ..., N0, N1, N2...]
             const auto c_grid_desc_ms_ns =
                 make_naive_tensor_descriptor(c_ms_ns_lengths, c_ms_ns_strides);
 
-            // transformed tensor E[MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 * N2 * ...]
+            // transformed tensor C[MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 * N2 * ...]
             const auto c_grid_desc_mraw_nraw = transform_tensor_descriptor(
                 c_grid_desc_ms_ns,
                 make_tuple(make_merge_transform(mLengths), make_merge_transform(nLengths)),
@@ -507,16 +513,98 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         }
     }
 
+    // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+    static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
+                                          const std::vector<index_t>& c_gs_ms_ns_strides_vec)
+    {
+        constexpr index_t NumDimG = CPermuteNumDims_G_M_Gemm1N::At(I0);
+        constexpr index_t NumDimM = CPermuteNumDims_G_M_Gemm1N::At(I1);
+        constexpr index_t NumDimN = CPermuteNumDims_G_M_Gemm1N::At(I2); // NumDimGemm1N
+
+        assert(c_gs_ms_ns_lengths_vec.size() == NumDimG + NumDimM + NumDimN &&
+               c_gs_ms_ns_strides_vec.size() == NumDimG + NumDimM + NumDimN);
+
+        const auto to_tuple = [&](auto& vec, auto start, auto end) {
+            return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
+        };
+
+        const auto c_gs_ms_ns_lengths =
+            to_tuple(c_gs_ms_ns_lengths_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
+        const auto c_gs_ms_ns_strides =
+            to_tuple(c_gs_ms_ns_strides_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
+
+        // dimension Ids for G0, G1, ...
+        constexpr auto gDimIds = typename arithmetic_sequence_gen<0, NumDimG, 1>::type{};
+
+        // dimension Ids for M0, M1, ...
+        constexpr auto mDimIds =
+            typename arithmetic_sequence_gen<NumDimG, NumDimG + NumDimM, 1>::type{};
+
+        // dimension Ids for N0, N1, ...
+        constexpr auto nDimIds = typename arithmetic_sequence_gen<NumDimG + NumDimM,
+                                                                  NumDimG + NumDimM + NumDimN,
+                                                                  1>::type{};
+
+        // lengths for G0, G1, ...
+        const auto gLengths = get_container_subset(c_gs_ms_ns_lengths, gDimIds);
+
+        // lengths for M0, M1, ...
+        const auto mLengths = get_container_subset(c_gs_ms_ns_lengths, mDimIds);
+
+        // lengths for K0, K1, ...
+        const auto nLengths = get_container_subset(c_gs_ms_ns_lengths, nDimIds);
+
+        if constexpr(CSpec == TensorSpecialization::Packed)
+        {
+            auto G = container_reduce(gLengths, math::multiplies{}, Number<1>{});
+            auto M = container_reduce(mLengths, math::multiplies{}, Number<1>{});
+            auto N = container_reduce(nLengths, math::multiplies{}, Number<1>{});
+            const auto c_grid_desc_g_mraw_nraw = make_naive_tensor_descriptor(
+                make_tuple(G, M, N),
+                make_tuple(c_gs_ms_ns_strides[Number<NumDimG - 1>{}],
+                           c_gs_ms_ns_strides[Number<NumDimG + NumDimM - 1>{}],
+                           c_gs_ms_ns_strides[Number<NumDimG + NumDimM + NumDimN - 1>{}]));
+
+            // this desc is only for calculating batch offset so no padding needed
+            return c_grid_desc_g_mraw_nraw;
+        }
+        else
+        {
+            // naive tensor C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+            const auto c_grid_desc_gs_ms_ns =
+                make_naive_tensor_descriptor(c_gs_ms_ns_lengths, c_gs_ms_ns_strides);
+
+            // transformed tensor C[G = G0 * G1 * ..., MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 *
+            // N2 * ...]
+            const auto c_grid_desc_g_mraw_nraw = transform_tensor_descriptor(
+                c_grid_desc_gs_ms_ns,
+                make_tuple(make_merge_transform(gLengths),
+                           make_merge_transform(mLengths),
+                           make_merge_transform(nLengths)),
+                make_tuple(gDimIds, mDimIds, nDimIds),
+                make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
+
+            // this desc is only for calculating batch offset so no padding needed
+            return c_grid_desc_g_mraw_nraw;
+        }
+    }
+
+    using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1(1, 1, 1));
+    using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1(1, 1, 1));
+    using B1GridDesc_BK0_N_BK1 = decltype(MakeB1GridDescriptor_BK0_N_BK1(1, 1, 1));
+    using CGridDesc_M_N        = decltype(MakeCGridDescriptor_M_N({}, {}));
+    using CGridDesc_G_M_N      = decltype(MakeCGridDescriptor_G_M_N({}, {}));
+
     struct ComputeBasePtrOfStridedBatch
     {
         ComputeBasePtrOfStridedBatch(index_t BatchStrideA,
                                      index_t BatchStrideB,
                                      index_t BatchStrideB1,
-                                     index_t BatchStrideC)
+                                     CGridDesc_G_M_N c_grid_desc_g_m_n)
             : BatchStrideA_(BatchStrideA),
               BatchStrideB_(BatchStrideB),
               BatchStrideB1_(BatchStrideB1),
-              BatchStrideC_(BatchStrideC)
+              c_grid_desc_g_m_n_(c_grid_desc_g_m_n)
         {
         }
 
@@ -537,20 +625,15 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
         __host__ __device__ constexpr long_index_t GetCBasePtr(index_t g_idx) const
         {
-            return g_idx * static_cast<long_index_t>(BatchStrideC_);
+            return c_grid_desc_g_m_n_.CalculateOffset(make_multi_index(g_idx, 0, 0));
         }
 
         private:
         index_t BatchStrideA_;
         index_t BatchStrideB_;
         index_t BatchStrideB1_;
-        index_t BatchStrideC_;
+        CGridDesc_G_M_N c_grid_desc_g_m_n_;
     };
-
-    using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1(1, 1, 1));
-    using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1(1, 1, 1));
-    using B1GridDesc_BK0_N_BK1 = decltype(MakeB1GridDescriptor_BK0_N_BK1(1, 1, 1));
-    using CGridDesc_M_N        = decltype(MakeCGridDescriptor_M_N(1, 1, 1));
 
     // GridwiseGemm
     using GridwiseGemm = GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle<
@@ -614,6 +697,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         LoopSched>;
 
     // Argument
+    // TODO ANT: constness
     struct Argument : public BaseArgument
     {
         Argument(const ADataType* p_a_grid,
@@ -628,11 +712,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                  index_t StrideA,
                  index_t StrideB,
                  index_t StrideB1,
-                 index_t StrideC,
+                //  index_t StrideC,
                  index_t BatchStrideA,
                  index_t BatchStrideB,
                  index_t BatchStrideB1,
-                 index_t BatchStrideC,
+                //  index_t BatchStrideC,
+                 std::vector<index_t> c_gs_ms_gemm1ns_lengths, // c_gs_ms_os_lengths
+                 std::vector<index_t> c_gs_ms_gemm1ns_strides, // c_gs_ms_os_strides
                  AElementwiseOperation a_element_op,
                  BElementwiseOperation b_element_op,
                  AccElementwiseOperation acc_element_op,
@@ -646,7 +732,9 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
               b_grid_desc_bk0_n_bk1_{DeviceOp::MakeBGridDescriptor_BK0_N_BK1(KRaw, NRaw, StrideB)},
               b1_grid_desc_bk0_n_bk1_{
                   DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(NRaw, Gemm1NRaw, StrideB1)},
-              c_grid_desc_m_n_{DeviceOp::MakeCGridDescriptor_M_N(MRaw, Gemm1NRaw, StrideC)},
+              c_grid_desc_m_n_{DeviceOp::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths, c_gs_ms_gemm1ns_strides)},
+              c_grid_desc_g_m_n_{
+                  DeviceOp::MakeCGridDescriptor_G_M_N(c_gs_ms_gemm1ns_lengths, c_gs_ms_gemm1ns_strides)},
               c_grid_desc_mblock_mperblock_nblock_nperblock_{},
               block_2_ctile_map_{GridwiseGemm::MakeDefaultBlock2CTileMap(c_grid_desc_m_n_)},
               a_element_op_{a_element_op},
@@ -655,7 +743,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
               b1_element_op_{b1_element_op},
               c_element_op_{c_element_op},
               batch_count_(Batch),
-              compute_base_ptr_of_batch_{BatchStrideA, BatchStrideB, BatchStrideB1, BatchStrideC}
+              compute_base_ptr_of_batch_{BatchStrideA, BatchStrideB, BatchStrideB1, c_grid_desc_g_m_n_}
         {
             if(GridwiseGemm::CheckValidity(a_grid_desc_ak0_m_ak1_,
                                            b_grid_desc_bk0_n_bk1_,
@@ -678,6 +766,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
         BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1_;
         B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1_;
         CGridDesc_M_N c_grid_desc_m_n_;
+        CGridDesc_G_M_N c_grid_desc_g_m_n_;
         typename GridwiseGemm::CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
             c_grid_desc_mblock_mperblock_nblock_nperblock_;
         typename GridwiseGemm::DefaultBlock2CTileMap block_2_ctile_map_;
@@ -791,6 +880,21 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
             return false;
         }
 
+        // Check if C permute dimension matches overall shape
+        const index_t c_g = arg.c_grid_desc_g_m_n_.GetLength(I0);
+        const index_t c_m = arg.c_grid_desc_g_m_n_.GetLength(I1);
+        const index_t c_gemm1n = arg.c_grid_desc_g_m_n_.GetLength(I2);
+        const index_t a_m = arg.a_grid_desc_ak0_m_ak1_.GetLength(I1);
+        const index_t b1_gemm1n = arg.b1_grid_desc_bk0_n_bk1_.GetLength(I1);
+        if (!(c_g == arg.batch_count_ && c_m == a_m && c_gemm1n == b1_gemm1n))
+        {
+            return false;
+        }
+
+        // TODO ANT:
+        // Check ABC length & stride and scalar per vector
+        // Can we use CalculateOffset as proxy?
+        // 0, 1, 2, 3, 4, 5, 6, 7
         return GridwiseGemm::CheckValidity(arg.a_grid_desc_ak0_m_ak1_,
                                            arg.b_grid_desc_bk0_n_bk1_,
                                            arg.b1_grid_desc_bk0_n_bk1_,
@@ -816,49 +920,72 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                              index_t StrideA,
                              index_t StrideB,
                              index_t StrideB1,
-                             index_t StrideC,
+                             //  index_t StrideC,
                              index_t BatchStrideA,
                              index_t BatchStrideB,
                              index_t BatchStrideB1,
-                             index_t BatchStrideC,
+                             //  index_t BatchStrideC,
+                             std::vector<index_t> c_gs_ms_gemm1ns_lengths, // c_gs_ms_os_lengths
+                             std::vector<index_t> c_gs_ms_gemm1ns_strides, // c_gs_ms_os_strides
                              AElementwiseOperation a_element_op,
                              BElementwiseOperation b_element_op,
                              AccElementwiseOperation acc_element_op,
                              B1ElementwiseOperation b1_element_op,
                              CElementwiseOperation c_element_op)
     {
-        return Argument{p_a,           p_b,          p_b1,         p_c,          MRaw,
-                        NRaw,          KRaw,         Gemm1NRaw,    Batch,        StrideA,
-                        StrideB,       StrideB1,     StrideC,      BatchStrideA, BatchStrideB,
-                        BatchStrideB1, BatchStrideC, a_element_op, b_element_op, acc_element_op,
-                        b1_element_op, c_element_op};
+        return Argument{p_a,
+                        p_b,
+                        p_b1,
+                        p_c,
+                        MRaw,
+                        NRaw,
+                        KRaw,
+                        Gemm1NRaw,
+                        Batch,
+                        StrideA,
+                        StrideB,
+                        StrideB1,
+                        BatchStrideA,
+                        BatchStrideB,
+                        BatchStrideB1,
+                        c_gs_ms_gemm1ns_lengths,
+                        c_gs_ms_gemm1ns_strides,
+                        a_element_op,
+                        b_element_op,
+                        acc_element_op,
+                        b1_element_op,
+                        c_element_op};
     }
 
     static auto MakeInvoker() { return Invoker{}; }
 
     // polymorphic
-    std::unique_ptr<BaseArgument> MakeArgumentPointer(const void* p_a,
-                                                      const void* p_b,
-                                                      const void* p_b1,
-                                                      void* p_c,
-                                                      index_t MRaw,
-                                                      index_t NRaw,
-                                                      index_t KRaw,
-                                                      index_t Gemm1NRaw,
-                                                      index_t Batch,
-                                                      index_t StrideA,
-                                                      index_t StrideB,
-                                                      index_t StrideB1,
-                                                      index_t StrideC,
-                                                      index_t BatchStrideA,
-                                                      index_t BatchStrideB,
-                                                      index_t BatchStrideB1,
-                                                      index_t BatchStrideC,
-                                                      AElementwiseOperation a_element_op,
-                                                      BElementwiseOperation b_element_op,
-                                                      AccElementwiseOperation acc_element_op,
-                                                      B1ElementwiseOperation b1_element_op,
-                                                      CElementwiseOperation c_element_op) override
+    // TODO ANT: constness
+    std::unique_ptr<BaseArgument>
+    MakeArgumentPointer(const void* p_a,
+                        const void* p_b,
+                        const void* p_b1,
+                        void* p_c,
+                        index_t MRaw,
+                        index_t NRaw,
+                        index_t KRaw,
+                        index_t Gemm1NRaw,
+                        index_t Batch,
+                        index_t StrideA,
+                        index_t StrideB,
+                        index_t StrideB1,
+                        //   index_t StrideC,
+                        index_t BatchStrideA,
+                        index_t BatchStrideB,
+                        index_t BatchStrideB1,
+                        //   index_t BatchStrideC,
+                        std::vector<index_t> c_gs_ms_gemm1ns_lengths, // c_gs_ms_os_lengths
+                        std::vector<index_t> c_gs_ms_gemm1ns_strides, // c_gs_ms_os_strides
+                        AElementwiseOperation a_element_op,
+                        BElementwiseOperation b_element_op,
+                        AccElementwiseOperation acc_element_op,
+                        B1ElementwiseOperation b1_element_op,
+                        CElementwiseOperation c_element_op) /* override */
     {
         return std::make_unique<Argument>(static_cast<const ADataType*>(p_a),
                                           static_cast<const BDataType*>(p_b),
@@ -872,11 +999,13 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                           StrideA,
                                           StrideB,
                                           StrideB1,
-                                          StrideC,
+                                          //   StrideC,
                                           BatchStrideA,
                                           BatchStrideB,
                                           BatchStrideB1,
-                                          BatchStrideC,
+                                          //   BatchStrideC,
+                                          c_gs_ms_gemm1ns_lengths,
+                                          c_gs_ms_gemm1ns_strides,
                                           a_element_op,
                                           b_element_op,
                                           acc_element_op,
@@ -885,7 +1014,7 @@ struct DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle
     }
 
     // polymorphic
-    std::unique_ptr<BaseInvoker> MakeInvokerPointer() override
+    std::unique_ptr<BaseInvoker> MakeInvokerPointer() /* override */
     {
         return std::make_unique<Invoker>(Invoker{});
     }
