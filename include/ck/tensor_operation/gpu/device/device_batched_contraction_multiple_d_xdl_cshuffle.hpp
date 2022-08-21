@@ -357,7 +357,7 @@ struct DeviceBatchedContractionMultipleD_Xdl_CShuffle
         //   [G0, G2, G1, M, N]
         // with strides
         //   [G2 * G1 * M * N, G1 * M * N, M * N, N, 1]
-        // is again a packed tensor. The issue lies where the code below re-calculates strides from
+        // is again a packed tensor. The issue lies where the code below ignores some strides from
         // input tensor extents so dimension order is effectively lost
         if constexpr(DESpec == TensorSpecialization::Packed)
         {
