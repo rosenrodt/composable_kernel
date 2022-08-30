@@ -81,7 +81,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftma
     256,         // NPerBlock
     32,          // KPerBlock
     64,          // Gemm1NPerBlock
-#if 0
+#if 1
     32,          // Gemm1KPerBlock
 #else
     64,          // Gemm1KPerBlock (wrong)
