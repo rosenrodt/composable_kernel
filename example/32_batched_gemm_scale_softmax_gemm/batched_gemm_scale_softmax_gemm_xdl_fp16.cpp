@@ -51,12 +51,13 @@ using CLayout  = Row;
 
 using AElementOp    = PassThrough;
 using B0ElementOp   = PassThrough;
-using Acc0ElementOp = ck::tensor_operation::element_wise::Scale;
+using Acc0ElementOp = PassThrough; //ck::tensor_operation::element_wise::Scale;
 using B1ElementOp   = PassThrough;
 using CElementOp    = PassThrough;
 
 static constexpr auto GemmDefault = ck::tensor_operation::device::GemmSpecialization::Default;
 
+// DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle<256, 64, 256, 32, 8, 8, 64, 64, 64, 2>
 using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle<
     ALayout,
     B0Layout,
@@ -76,19 +77,23 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftma
     GemmDefault,
     1,
     256,
-    128,         // MPerBlock
-    128,         // NPerBlock
+    64,          // MPerBlock
+    256,         // NPerBlock
     32,          // KPerBlock
     64,          // Gemm1NPerBlock
+#if 0
     32,          // Gemm1KPerBlock
+#else
+    64,          // Gemm1KPerBlock (wrong)
+#endif
     8,           // AK1
     8,           // BK1
     2,           // B1K1
-    32,          // MPerXDL
-    32,          // NPerXDL
+    16,          // MPerXDL
+    16,          // NPerXDL
     1,           // MXdlPerWave
-    4,           // NXdlPerWave
-    2,           // Gemm1NXdlPerWave
+    16,          // NXdlPerWave
+    4,           // Gemm1NXdlPerWave
     S<4, 64, 1>, // ABlockTransfer
     S<1, 0, 2>,
     S<1, 0, 2>,
@@ -111,7 +116,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftma
     2,
     false,
     1,              // CShuffleMXdlPerWavePerShuffle
-    2,              // CShuffleNXdlPerWavePerShuffle
+    4,              // CShuffleNXdlPerWavePerShuffle
     S<1, 32, 1, 8>, // CShuffleBlockTransferClusterLengths_MBlock_MPerBlock_NBlock_NPerBlock
     8>;             // CShuffleBlockTransferScalarPerVector_NPerBlock
 
@@ -158,7 +163,7 @@ int main(int argc, char* argv[])
     ck::index_t BatchStrideB1 = -1;
     ck::index_t BatchStrideC  = -1;
     float alpha               = 1;
-
+    (void)alpha;
     if(argc == 1)
     {
         // use default case
@@ -309,7 +314,7 @@ int main(int argc, char* argv[])
 
     auto a_element_op    = AElementOp{};
     auto b0_element_op   = B0ElementOp{};
-    auto acc0_element_op = Acc0ElementOp{alpha};
+    auto acc0_element_op = Acc0ElementOp{};
     auto b1_element_op   = B1ElementOp{};
     auto c_element_op    = CElementOp{};
 
