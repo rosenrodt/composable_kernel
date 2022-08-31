@@ -60,7 +60,7 @@ using Acc0ElementOp = ck::tensor_operation::element_wise::ScaleAndResetNaNToMinu
 using B1ElementOp   = PassThrough;
 using CElementOp    = PassThrough;
 
-static constexpr auto MNPadding = ck::tensor_operation::device::GemmSpecialization::MNPadding;
+static constexpr auto MNKPadding = ck::tensor_operation::device::GemmSpecialization::MNKPadding;
 
 using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftmaxGemm_Xdl_CShuffle<
     ALayout,
@@ -78,7 +78,7 @@ using DeviceGemmInstance = ck::tensor_operation::device::DeviceBatchedGemmSoftma
     Acc0ElementOp,
     B1ElementOp,
     CElementOp,
-    MNPadding,
+    MNKPadding,
     1,
     256,
     128,         // MPerBlock
@@ -151,7 +151,7 @@ int main(int argc, char* argv[])
     // GEMM shape
     ck::index_t M             = 1020;
     ck::index_t N             = 1020;
-    ck::index_t K             = 64;
+    ck::index_t K             = 16;
     ck::index_t O             = 128;
     ck::index_t BatchCount    = 4;
     ck::index_t StrideA       = -1;
