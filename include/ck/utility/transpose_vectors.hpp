@@ -18,21 +18,22 @@ struct transpose_vectors;
 // transpose fp16 2x2
 __device__ void transpose_fp16_2x2(const half2_t& x0, const half2_t& x1, half2_t& y0, half2_t& y1)
 {
-#if 0
+#if 0 // manually enable this to compare difference
     static constexpr auto I0 = Number<0>{};
     static constexpr auto I1 = Number<1>{};
 
-    const vector_type<half_t, 2> vx0{x0}, vx1{x1};
-    vector_type<half_t, 2> vy0, vy1;
+    const vector_type<uint16_t, 2> vx0{bit_cast<typename vector_type<uint16_t, 2>::type>(x0)};
+    const vector_type<uint16_t, 2> vx1{bit_cast<typename vector_type<uint16_t, 2>::type>(x1)};
+    vector_type<uint16_t, 2> vy0, vy1;
 
-    vy0.template AsType<half_t>()(I0) = vx0.template AsType<half_t>()[I0];
-    vy0.template AsType<half_t>()(I1) = vx1.template AsType<half_t>()[I0];
+    vy0.template AsType<uint16_t>()(I0) = vx0.template AsType<uint16_t>()[I0];
+    vy0.template AsType<uint16_t>()(I1) = vx1.template AsType<uint16_t>()[I0];
 
-    vy1.template AsType<half_t>()(I0) = vx0.template AsType<half_t>()[I1];
-    vy1.template AsType<half_t>()(I1) = vx1.template AsType<half_t>()[I1];
+    vy1.template AsType<uint16_t>()(I0) = vx0.template AsType<uint16_t>()[I1];
+    vy1.template AsType<uint16_t>()(I1) = vx1.template AsType<uint16_t>()[I1];
 
-    y0 = vy0.template AsType<half2_t>()[I0];
-    y1 = vy1.template AsType<half2_t>()[I0];
+    y0 = bit_cast<half2_t>(vy0);
+    y1 = bit_cast<half2_t>(vy1);
 #else
     asm volatile("\n \
             v_pack_b32_f16 %0, %1, %2 \n \
