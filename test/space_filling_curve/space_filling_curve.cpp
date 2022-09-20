@@ -76,14 +76,10 @@ __global__ void acc_tile_visitor_kernel(int* p)
                                                 Sequence<0, 1, 2, 3, 4, 5, 6, 7>,
                                                 Sequence<1, 1, 1, 1, 1, 1, 1, 1>,
                                                 false>;
-    // using BlockIterator = SpaceFillingCurve<decltype(c_block_lengths),
-    //                                                  Sequence<0, 1, 2, 3, 4, 5, 6, 7>,
-    //                                                  Sequence<1, 1, 2, 2, 1, 2, 1, 32>>;
 
     auto c_idx = blockwise_gemm.CalculateCThreadOriginDataIndex_8D(
         Number<0>{}, Number<0>{}, Number<0>{}, Number<0>{});
 
-    // auto thread_slice_desc = blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_M3_M4_N2();
     constexpr auto block_slice_8d_to_m_n_adaptor = make_single_stage_tensor_adaptor(
         make_tuple(make_unmerge_transform(make_tuple(m0, m1, m2, m3, m4)),
                    make_unmerge_transform(make_tuple(n0, n1, n2))),
