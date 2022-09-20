@@ -692,6 +692,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         constexpr auto thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4 =
             blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths() /
             blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
+        // blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths().foo();  // <1, 4, 4, 1, 32, 4, 2, 4>
+        // blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths().bar(); // <1, 4, 1, 1,  1, 4, 1, 4>
+        // thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.GetLengths().faz();                        // <1, 1, 4, 1, 32, 1, 2, 1>
         constexpr auto tm0 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I0);
         constexpr auto tn0 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I1);
         constexpr auto tm1 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I2);
