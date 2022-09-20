@@ -74,7 +74,8 @@ __global__ void acc_tile_visitor_kernel(int* p)
 
     using ThreadIterator = SpaceFillingCurve<decltype(c_thread_lengths),
                                                 Sequence<0, 1, 2, 3, 4, 5, 6, 7>,
-                                                Sequence<1, 1, 1, 1, 1, 1, 1, 1>>;
+                                                Sequence<1, 1, 1, 1, 1, 1, 1, 1>,
+                                                false>;
     // using BlockIterator = SpaceFillingCurve<decltype(c_block_lengths),
     //                                                  Sequence<0, 1, 2, 3, 4, 5, 6, 7>,
     //                                                  Sequence<1, 1, 2, 2, 1, 2, 1, 32>>;
