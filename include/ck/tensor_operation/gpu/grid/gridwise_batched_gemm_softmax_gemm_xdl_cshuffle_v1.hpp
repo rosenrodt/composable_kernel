@@ -94,8 +94,8 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
     // K1 should be Number<...>
     // Gemm0
-    static constexpr auto AK0 = Number<KPerBlock / AK1Value>{};
-    static constexpr auto BK0 = Number<KPerBlock / BK1Value>{};
+    static constexpr auto AK0PerBlock = Number<KPerBlock / AK1Value>{};
+    static constexpr auto BK0PerBlock = Number<KPerBlock / BK1Value>{};
     static constexpr auto AK1 = Number<AK1Value>{};
     static constexpr auto BK1 = Number<BK1Value>{};
 
@@ -103,7 +103,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     static constexpr auto Gemm0NWaves = NPerBlock / (NPerXdl * NXdlPerWave);
 
     // Gemm1
-    static constexpr auto B1K0 = Number<Gemm1KPerBlock / B1K1Value>{};
+    static constexpr auto B1K0PerBlock = Number<Gemm1KPerBlock / B1K1Value>{};
     static constexpr auto B1K1 = Number<B1K1Value>{};
 
     using ThisThreadBlock = ThisThreadBlock<BlockSize>;
@@ -150,7 +150,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     {
         // A matrix in LDS memory, dst of blockwise copy
         return make_naive_tensor_descriptor(
-            make_tuple(AK0, Number<MPerBlock>{}, AK1),
+            make_tuple(AK0PerBlock, Number<MPerBlock>{}, AK1),
             make_tuple(Number<MPerBlock + ABlockLdsExtraM>{} * AK1, AK1, I1));
     }
 
@@ -158,7 +158,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     {
         // B matrix in LDS memory, dst of blockwise copy
         return make_naive_tensor_descriptor(
-            make_tuple(BK0, Number<NPerBlock>{}, BK1),
+            make_tuple(BK0PerBlock, Number<NPerBlock>{}, BK1),
             make_tuple(Number<NPerBlock + BBlockLdsExtraN>{} * BK1, BK1, I1));
     }
 
@@ -166,7 +166,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     {
         // B1 matrix in LDS memory, dst of blockwise copy
         return make_naive_tensor_descriptor(
-            make_tuple(B1K0, Number<Gemm1NPerBlock>{}, B1K1),
+            make_tuple(B1K0PerBlock, Number<Gemm1NPerBlock>{}, B1K1),
             make_tuple(Number<Gemm1NPerBlock + B1BlockLdsExtraN>{} * B1K1, B1K1, I1));
     }
 
@@ -429,7 +429,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                 AElementwiseOperation,
                                                 tensor_operation::element_wise::PassThrough,
                                                 InMemoryDataOperationEnum::Set,
-                                                Sequence<AK0, MPerBlock, AK1>,
+                                                Sequence<AK0PerBlock, MPerBlock, AK1>,
                                                 ABlockTransferThreadClusterLengths_AK0_M_AK1,
                                                 ABlockTransferThreadClusterArrangeOrder,
                                                 FloatAB,
@@ -460,7 +460,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                 BElementwiseOperation,
                                                 tensor_operation::element_wise::PassThrough,
                                                 InMemoryDataOperationEnum::Set,
-                                                Sequence<BK0, NPerBlock, BK1>,
+                                                Sequence<BK0PerBlock, NPerBlock, BK1>,
                                                 BBlockTransferThreadClusterLengths_BK0_N_BK1,
                                                 BBlockTransferThreadClusterArrangeOrder,
                                                 FloatAB,
@@ -608,7 +608,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                 BElementwiseOperation,
                                                 tensor_operation::element_wise::PassThrough,
                                                 InMemoryDataOperationEnum::Set,
-                                                Sequence<B1K0, Gemm1NPerBlock, B1K1>,
+                                                Sequence<B1K0PerBlock, Gemm1NPerBlock, B1K1>,
                                                 B1BlockTransferThreadClusterLengths_BK0_N_BK1,
                                                 B1BlockTransferThreadClusterArrangeOrder,
                                                 FloatAB,
