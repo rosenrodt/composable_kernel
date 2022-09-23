@@ -10,107 +10,88 @@
 namespace ck {
 namespace tensor_operation {
 
-template <
-    typename NumDims_G_M_N_K_O, // Sequence<>
-    typename PerBlock_M_N_K_O, // Sequence<>
-    device::GemmSpecialization GemmSpec>
-struct TransformBatchedContractionContractionToBatchedGemmGemm
+// assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+template <index_t MPerBlock, index_t NPerBlock, index_t NumDimG, index_t NumDimM, index_t NumDimN>
+static auto MakeGridDescriptorPair(const std::vector<index_t>& gs_ms_ns_lengths_vec,
+                                   const std::vector<index_t>& gs_ms_ns_strides_vec)
 {
-    static constexpr auto I0 = Number<0>{};
-    static constexpr auto I1 = Number<1>{};
-    static constexpr auto I2 = Number<2>{};
-    static constexpr auto I3 = Number<3>{};
-    static constexpr auto I4 = Number<4>{};
+    if(!(gs_ms_ns_lengths_vec.size() == NumDimG + NumDimM + NumDimN &&
+         gs_ms_ns_strides_vec.size() == NumDimG + NumDimM + NumDimN))
+    {
+        throw std::runtime_error("wrong! dimension must match input lengths");
+    }
 
-    static constexpr index_t NumDimG = NumDims_G_M_N_K_O::At(I0);
-    static constexpr index_t NumDimM = NumDims_G_M_N_K_O::At(I1);
-    static constexpr index_t NumDimN = NumDims_G_M_N_K_O::At(I2);
-    static constexpr index_t NumDimK = NumDims_G_M_N_K_O::At(I3);
-    static constexpr index_t NumDimO = NumDims_G_M_N_K_O::At(I4);
+    const auto to_tuple = [&](auto& vec, auto start, auto end) {
+        return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
+    };
 
-    static constexpr index_t MPerBlock = PerBlock_M_N_K_O::At(I0);
-    static constexpr index_t NPerBlock = PerBlock_M_N_K_O::At(I1);
-    static constexpr index_t KPerBlock = PerBlock_M_N_K_O::At(I2);
-    static constexpr index_t OPerBlock = PerBlock_M_N_K_O::At(I3);
+    const auto gs_ms_ns_lengths =
+        to_tuple(gs_ms_ns_lengths_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
+    const auto gs_ms_ns_strides =
+        to_tuple(gs_ms_ns_strides_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
 
-    static constexpr auto matrix_padder =
-        device::GemmGemmPadder<GemmSpec, index_t, index_t, index_t, index_t>{
-            MPerBlock, NPerBlock, KPerBlock, OPerBlock};
+    // dimension Ids for G0, G1, ...
+    constexpr auto gDimIds = typename arithmetic_sequence_gen<0, NumDimG, 1>::type{};
 
-    // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+    // dimension Ids for M0, M1, ...
+    constexpr auto mDimIds =
+        typename arithmetic_sequence_gen<NumDimG, NumDimG + NumDimM, 1>::type{};
+
+    // dimension Ids for N0, N1, ...
+    constexpr auto nDimIds =
+        typename arithmetic_sequence_gen<NumDimG + NumDimM, NumDimG + NumDimM + NumDimN, 1>::type{};
+
+    // lengths for G0, G1, ...
+    const auto gLengths = get_container_subset(gs_ms_ns_lengths, gDimIds);
+
+    // lengths for M0, M1, ...
+    const auto mLengths = get_container_subset(gs_ms_ns_lengths, mDimIds);
+
+    // lengths for N0, N1, ...
+    const auto nLengths = get_container_subset(gs_ms_ns_lengths, nDimIds);
+
+    // naive tensor C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
+    const auto grid_desc_gs_ms_ns =
+        make_naive_tensor_descriptor(gs_ms_ns_lengths, gs_ms_ns_strides);
+
+    // transformed tensor C[G = G0 * G1 * ..., MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 *
+    // N2 * ...]
+    // Note: This does not require padding as it only provides G offset calculation. Technically
+    // descriptor for only G is needed. Here we opt for backward compatibility purpose to return
+    // G_M_N
+    const auto grid_desc_g_mraw_nraw =
+        transform_tensor_descriptor(grid_desc_gs_ms_ns,
+                                    make_tuple(make_merge_transform(gLengths),
+                                               make_merge_transform(mLengths),
+                                               make_merge_transform(nLengths)),
+                                    make_tuple(gDimIds, mDimIds, nDimIds),
+                                    make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
+
+    const auto c_ms_ns_lengths =
+        to_tuple(gs_ms_ns_lengths_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
+    const auto c_ms_ns_strides =
+        to_tuple(gs_ms_ns_strides_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
+
+    // transformed tensor C[MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 *
+    // N2 * ...]
+    const auto grid_desc_ms_ns = make_naive_tensor_descriptor(c_ms_ns_lengths, c_ms_ns_strides);
+
+    const auto grid_desc_mraw_nraw = transform_tensor_descriptor(
+        grid_desc_ms_ns,
+        make_tuple(make_merge_transform(mLengths), make_merge_transform(nLengths)),
+        make_tuple(mDimIds - Number<NumDimG>{}, nDimIds - Number<NumDimG>{}),
+        make_tuple(Sequence<0>{}, Sequence<1>{}));
+
+    return std::make_pair(grid_desc_g_mraw_nraw, grid_desc_mraw_nraw);
+}
+
+
+    // C
     static auto MakeCGridDescriptorPair(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
                                         const std::vector<index_t>& c_gs_ms_os_strides_vec)
     {
-        if(!(c_gs_ms_os_lengths_vec.size() == NumDimG + NumDimM + NumDimO &&
-             c_gs_ms_os_strides_vec.size() == NumDimG + NumDimM + NumDimO))
-        {
-            throw std::runtime_error("wrong! dimension must match input lengths");
-        }
-
-        const auto to_tuple = [&](auto& vec, auto start, auto end) {
-            return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
-        };
-
-        const auto c_gs_ms_os_lengths =
-            to_tuple(c_gs_ms_os_lengths_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimO>{});
-        const auto c_gs_ms_os_strides =
-            to_tuple(c_gs_ms_os_strides_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimO>{});
-
-        // dimension Ids for G0, G1, ...
-        constexpr auto gDimIds = typename arithmetic_sequence_gen<0, NumDimG, 1>::type{};
-
-        // dimension Ids for M0, M1, ...
-        constexpr auto mDimIds =
-            typename arithmetic_sequence_gen<NumDimG, NumDimG + NumDimM, 1>::type{};
-
-        // dimension Ids for O0, O1, ...
-        constexpr auto oDimIds = typename arithmetic_sequence_gen<NumDimG + NumDimM,
-                                                                  NumDimG + NumDimM + NumDimO,
-                                                                  1>::type{};
-
-        // lengths for G0, G1, ...
-        const auto gLengths = get_container_subset(c_gs_ms_os_lengths, gDimIds);
-
-        // lengths for M0, M1, ...
-        const auto mLengths = get_container_subset(c_gs_ms_os_lengths, mDimIds);
-
-        // lengths for O0, O1, ...
-        const auto oLengths = get_container_subset(c_gs_ms_os_lengths, oDimIds);
-
-        // naive tensor C[G0, G1, ..., M0, M1, M2, ..., O0, O1, O2...]
-        const auto c_grid_desc_gs_ms_os =
-            make_naive_tensor_descriptor(c_gs_ms_os_lengths, c_gs_ms_os_strides);
-
-        // transformed tensor C[G = G0 * G1 * ..., MRaw = M0 * M1 * M2 * ... , ORaw = O0 * O1 *
-        // O2 * ...]
-        // Note: This does not require padding as it only provides G offset calculation. Technically
-        // descriptor for only G is needed. Here we opt for backward compatibility purpose to return
-        // G_M_N
-        const auto c_grid_desc_g_mraw_oraw =
-            transform_tensor_descriptor(c_grid_desc_gs_ms_os,
-                                        make_tuple(make_merge_transform(gLengths),
-                                                   make_merge_transform(mLengths),
-                                                   make_merge_transform(oLengths)),
-                                        make_tuple(gDimIds, mDimIds, oDimIds),
-                                        make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
-
-        const auto c_ms_os_lengths =
-            to_tuple(c_gs_ms_os_lengths_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimO>{});
-        const auto c_ms_os_strides =
-            to_tuple(c_gs_ms_os_strides_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimO>{});
-
-        const auto c_grid_desc_ms_os =
-            make_naive_tensor_descriptor(c_ms_os_lengths, c_ms_os_strides);
-
-        const auto c_grid_desc_mraw_oraw = transform_tensor_descriptor(
-            c_grid_desc_ms_os,
-            make_tuple(make_merge_transform(mLengths), make_merge_transform(oLengths)),
-            make_tuple(mDimIds - Number<NumDimG>{}, oDimIds - Number<NumDimG>{}),
-            make_tuple(Sequence<0>{}, Sequence<1>{}));
-
-        const auto c_grid_desc_m_o = matrix_padder.PadCDescriptor_M_N(c_grid_desc_mraw_oraw);
-
-        return std::make_pair(c_grid_desc_g_mraw_oraw, c_grid_desc_m_o);
+        return MakeGridDescriptorPair<MPerBlock, OPerBlock, NumDimG, NumDimM, NumDimO>(
+            c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec);
     }
 
     static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
@@ -121,7 +102,8 @@ struct TransformBatchedContractionContractionToBatchedGemmGemm
     static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
                                         const std::vector<index_t>& c_gs_ms_os_strides_vec)
     {
-        return MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).second;
+        return matrix_padder.PadCDescriptor_M_N(
+            MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).second);
     }
 
     template <typename AGridDesc_M_K, typename Number>
