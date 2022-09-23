@@ -16,16 +16,22 @@ template <
     device::GemmSpecialization GemmSpec>
 struct TransformBatchedContractionContractionToBatchedGemmGemm
 {
-    static constexpr index_t NumDimG = NumDims_G_M_N_K_O::At(Number<0>{});
-    static constexpr index_t NumDimM = NumDims_G_M_N_K_O::At(Number<1>{});
-    static constexpr index_t NumDimN = NumDims_G_M_N_K_O::At(Number<2>{});
-    static constexpr index_t NumDimK = NumDims_G_M_N_K_O::At(Number<3>{});
-    static constexpr index_t NumDimO = NumDims_G_M_N_K_O::At(Number<4>{});
+    static constexpr auto I0 = Number<0>{};
+    static constexpr auto I1 = Number<1>{};
+    static constexpr auto I2 = Number<2>{};
+    static constexpr auto I3 = Number<3>{};
+    static constexpr auto I4 = Number<4>{};
 
-    static constexpr index_t MPerBlock = PerBlock_M_N_K_O::At(Number<0>{});
-    static constexpr index_t NPerBlock = PerBlock_M_N_K_O::At(Number<1>{});
-    static constexpr index_t KPerBlock = PerBlock_M_N_K_O::At(Number<2>{});
-    static constexpr index_t OPerBlock = PerBlock_M_N_K_O::At(Number<3>{});
+    static constexpr index_t NumDimG = NumDims_G_M_N_K_O::At(I0);
+    static constexpr index_t NumDimM = NumDims_G_M_N_K_O::At(I1);
+    static constexpr index_t NumDimN = NumDims_G_M_N_K_O::At(I2);
+    static constexpr index_t NumDimK = NumDims_G_M_N_K_O::At(I3);
+    static constexpr index_t NumDimO = NumDims_G_M_N_K_O::At(I4);
+
+    static constexpr index_t MPerBlock = PerBlock_M_N_K_O::At(I0);
+    static constexpr index_t NPerBlock = PerBlock_M_N_K_O::At(I1);
+    static constexpr index_t KPerBlock = PerBlock_M_N_K_O::At(I2);
+    static constexpr index_t OPerBlock = PerBlock_M_N_K_O::At(I3);
 
     static constexpr auto matrix_padder =
         device::GemmGemmPadder<GemmSpec, index_t, index_t, index_t, index_t>{
@@ -117,6 +123,56 @@ struct TransformBatchedContractionContractionToBatchedGemmGemm
     {
         return MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).second;
     }
+
+    template <typename AGridDesc_M_K, typename Number>
+    __host__ __device__ static constexpr auto
+    MakeDefaultAGridDescriptor_AK0_M_AK1(const AGridDesc_M_K& a_grid_desc_m_k, const Number& AK1)
+    {
+        const auto M = a_grid_desc_m_k.GetLength(I0);
+        const auto K = a_grid_desc_m_k.GetLength(I1);
+
+        const auto AK0 = K / AK1;
+
+        return transform_tensor_descriptor(a_grid_desc_m_k,
+                                           make_tuple(make_unmerge_transform(make_tuple(AK0, AK1)),
+                                                      make_pass_through_transform(M)),
+                                           make_tuple(Sequence<1>{}, Sequence<0>{}),
+                                           make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+    }
+
+    template <typename BGridDesc_N_K, typename Number>
+    __host__ __device__ static constexpr auto
+    MakeDefaultBGridDescriptor_BK0_N_BK1(const BGridDesc_N_K& b_grid_desc_n_k, const Number& BK1)
+    {
+        const auto N = b_grid_desc_n_k.GetLength(I0);
+        const auto K = b_grid_desc_n_k.GetLength(I1);
+
+        const auto BK0 = K / BK1;
+
+        return transform_tensor_descriptor(b_grid_desc_n_k,
+                                           make_tuple(make_unmerge_transform(make_tuple(BK0, BK1)),
+                                                      make_pass_through_transform(N)),
+                                           make_tuple(Sequence<1>{}, Sequence<0>{}),
+                                           make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+    }
+
+    template <typename B1GridDesc_N_K, typename Number>
+    __host__ __device__ static constexpr auto
+    MakeDefaultB1GridDescriptor_BK0_N_BK1(const B1GridDesc_N_K& b1_grid_desc_n_k, const Number& B1K1)
+    {
+        const auto N = b1_grid_desc_n_k.GetLength(I0);
+        const auto K = b1_grid_desc_n_k.GetLength(I1);
+
+        const auto B1K0 = K / B1K1;
+
+        return transform_tensor_descriptor(
+            b1_grid_desc_n_k,
+            make_tuple(make_unmerge_transform(make_tuple(B1K0, B1K1)),
+                       make_pass_through_transform(N)),
+            make_tuple(Sequence<1>{}, Sequence<0>{}),
+            make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+    }
+
 };
 
 } // namespace tensor_operation

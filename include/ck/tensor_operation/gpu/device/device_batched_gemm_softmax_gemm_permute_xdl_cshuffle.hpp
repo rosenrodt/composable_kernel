@@ -229,16 +229,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         const auto a_grid_desc_m_k = matrix_padder.PadADescriptor_M_K(a_grid_desc_mraw_kraw);
 
-        const auto M = a_grid_desc_m_k.GetLength(I0);
-        const auto K = a_grid_desc_m_k.GetLength(I1);
-
-        const auto AK0 = K / AK1;
-
-        return transform_tensor_descriptor(a_grid_desc_m_k,
-                                           make_tuple(make_unmerge_transform(make_tuple(AK0, AK1)),
-                                                      make_pass_through_transform(M)),
-                                           make_tuple(Sequence<1>{}, Sequence<0>{}),
-                                           make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+        return Transform::MakeDefaultAGridDescriptor_AK0_M_AK1(a_grid_desc_m_k, Number<AK1>{});
     }
 
     static auto MakeBGridDescriptor_BK0_N_BK1(index_t KRaw, index_t NRaw, index_t StrideB)
@@ -258,16 +249,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         const auto b_grid_desc_n_k = matrix_padder.PadBDescriptor_N_K(b_grid_desc_nraw_kraw);
 
-        const auto N = b_grid_desc_n_k.GetLength(I0);
-        const auto K = b_grid_desc_n_k.GetLength(I1);
-
-        const auto BK0 = K / BK1;
-
-        return transform_tensor_descriptor(b_grid_desc_n_k,
-                                           make_tuple(make_unmerge_transform(make_tuple(BK0, BK1)),
-                                                      make_pass_through_transform(N)),
-                                           make_tuple(Sequence<1>{}, Sequence<0>{}),
-                                           make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+        return Transform::MakeDefaultBGridDescriptor_BK0_N_BK1(b_grid_desc_n_k, Number<BK1>{});
     }
 
     // Args: Gemm1KRaw, Gemm1NRaw, StrideB1
@@ -288,17 +270,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         const auto b1_grid_desc_n_k = matrix_padder.PadB1Descriptor_N_K(b1_grid_desc_nraw_kraw);
 
-        const auto N = b1_grid_desc_n_k.GetLength(I0);
-        const auto K = b1_grid_desc_n_k.GetLength(I1);
-
-        const auto B1K0 = K / B1K1;
-
-        return transform_tensor_descriptor(
-            b1_grid_desc_n_k,
-            make_tuple(make_unmerge_transform(make_tuple(B1K0, B1K1)),
-                       make_pass_through_transform(N)),
-            make_tuple(Sequence<1>{}, Sequence<0>{}),
-            make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+        return Transform::MakeDefaultB1GridDescriptor_BK0_N_BK1(b1_grid_desc_n_k, Number<B1K1>{});
     }
 
     // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
