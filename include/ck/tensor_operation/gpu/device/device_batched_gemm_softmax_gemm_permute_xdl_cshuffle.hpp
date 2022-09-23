@@ -14,6 +14,7 @@
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/matrix_padder.hpp"
 #include "ck/tensor_operation/gpu/grid/gridwise_batched_gemm_softmax_gemm_xdl_cshuffle_v1.hpp"
+#include "ck/tensor_operation/operator_transform/transform_contraction_to_gemm.hpp"
 #include "ck/host_utility/device_prop.hpp"
 #include "ck/host_utility/kernel_launch.hpp"
 
@@ -116,6 +117,8 @@ __global__ void
 // Computes C = A * B0 * B1
 //              ^^^^^^ (Acc0)
 //              ^^^^^^^^^^^ (Acc1)
+// TODO ANT: add bias after A * B0
+// TODO ANT: support enum struct for various masks, before masking to -inf
 template <typename ALayout,
           typename BLayout, // B0Layout
           typename B1Layout,
@@ -199,6 +202,15 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
     static constexpr auto matrix_padder =
         GemmGemmPadder<GemmSpec, index_t, index_t, index_t, index_t>{
             MPerBlock, NPerBlock, KPerBlock, Gemm1NPerBlock};
+
+    using Transform = TransformBatchedContractionContractionToBatchedGemmGemm<
+        Sequence<CPermuteNumDims_G_M_Gemm1N::At(I0),
+                 CPermuteNumDims_G_M_Gemm1N::At(I1),
+                 1,
+                 1,
+                 CPermuteNumDims_G_M_Gemm1N::At(I2)>,
+        Sequence<MPerBlock, NPerBlock, KPerBlock, Gemm1NPerBlock>,
+        GemmSpec>;
 
     static auto MakeAGridDescriptor_AK0_M_AK1(index_t MRaw, index_t KRaw, index_t StrideA)
     {
@@ -293,106 +305,14 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
     static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
                                         const std::vector<index_t>& c_gs_ms_ns_strides_vec)
     {
-        constexpr index_t NumDimG = CPermuteNumDims_G_M_Gemm1N::At(I0);
-        constexpr index_t NumDimM = CPermuteNumDims_G_M_Gemm1N::At(I1);
-        constexpr index_t NumDimN = CPermuteNumDims_G_M_Gemm1N::At(I2); // NumDimGemm1N
-
-        assert(c_gs_ms_ns_lengths_vec.size() == NumDimG + NumDimM + NumDimN &&
-               c_gs_ms_ns_strides_vec.size() == NumDimG + NumDimM + NumDimN);
-
-        const auto to_tuple = [&](auto& vec, auto start, auto end) {
-            return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
-        };
-
-        const auto c_ms_ns_lengths = to_tuple(
-            c_gs_ms_ns_lengths_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
-        const auto c_ms_ns_strides = to_tuple(
-            c_gs_ms_ns_strides_vec, Number<NumDimG>{}, Number<NumDimG + NumDimM + NumDimN>{});
-
-        // dimension Ids for M0, M1, ...
-        constexpr auto mDimIds = typename arithmetic_sequence_gen<0, NumDimM, 1>::type{};
-
-        // dimension Ids for N0, N1, ...
-        constexpr auto nDimIds =
-            typename arithmetic_sequence_gen<NumDimM, NumDimM + NumDimN, 1>::type{};
-
-        // lengths for M0, M1, ...
-        const auto mLengths = get_container_subset(c_ms_ns_lengths, mDimIds);
-
-        // lengths for K0, K1, ...
-        const auto nLengths = get_container_subset(c_ms_ns_lengths, nDimIds);
-
-        // naive tensor C[M0, M1, M2, ..., N0, N1, N2...]
-        const auto c_grid_desc_ms_ns =
-            make_naive_tensor_descriptor(c_ms_ns_lengths, c_ms_ns_strides);
-
-        // transformed tensor C[MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 * N2 * ...]
-        const auto c_grid_desc_mraw_nraw = transform_tensor_descriptor(
-            c_grid_desc_ms_ns,
-            make_tuple(make_merge_transform(mLengths), make_merge_transform(nLengths)),
-            make_tuple(mDimIds, nDimIds),
-            make_tuple(Sequence<0>{}, Sequence<1>{}));
-
-        return matrix_padder.PadCDescriptor_M_N(c_grid_desc_mraw_nraw);
+        return Transform::MakeCGridDescriptor_M_N(c_gs_ms_ns_lengths_vec, c_gs_ms_ns_strides_vec);
     }
 
     // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
     static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>& c_gs_ms_ns_lengths_vec,
                                           const std::vector<index_t>& c_gs_ms_ns_strides_vec)
     {
-        constexpr index_t NumDimG = CPermuteNumDims_G_M_Gemm1N::At(I0);
-        constexpr index_t NumDimM = CPermuteNumDims_G_M_Gemm1N::At(I1);
-        constexpr index_t NumDimN = CPermuteNumDims_G_M_Gemm1N::At(I2); // NumDimGemm1N
-
-        assert(c_gs_ms_ns_lengths_vec.size() == NumDimG + NumDimM + NumDimN &&
-               c_gs_ms_ns_strides_vec.size() == NumDimG + NumDimM + NumDimN);
-
-        const auto to_tuple = [&](auto& vec, auto start, auto end) {
-            return generate_tuple([&](auto i) { return vec[start + i]; }, Number<end - start>{});
-        };
-
-        const auto c_gs_ms_ns_lengths =
-            to_tuple(c_gs_ms_ns_lengths_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
-        const auto c_gs_ms_ns_strides =
-            to_tuple(c_gs_ms_ns_strides_vec, Number<0>{}, Number<NumDimG + NumDimM + NumDimN>{});
-
-        // dimension Ids for G0, G1, ...
-        constexpr auto gDimIds = typename arithmetic_sequence_gen<0, NumDimG, 1>::type{};
-
-        // dimension Ids for M0, M1, ...
-        constexpr auto mDimIds =
-            typename arithmetic_sequence_gen<NumDimG, NumDimG + NumDimM, 1>::type{};
-
-        // dimension Ids for N0, N1, ...
-        constexpr auto nDimIds = typename arithmetic_sequence_gen<NumDimG + NumDimM,
-                                                                  NumDimG + NumDimM + NumDimN,
-                                                                  1>::type{};
-
-        // lengths for G0, G1, ...
-        const auto gLengths = get_container_subset(c_gs_ms_ns_lengths, gDimIds);
-
-        // lengths for M0, M1, ...
-        const auto mLengths = get_container_subset(c_gs_ms_ns_lengths, mDimIds);
-
-        // lengths for K0, K1, ...
-        const auto nLengths = get_container_subset(c_gs_ms_ns_lengths, nDimIds);
-
-        // naive tensor C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
-        const auto c_grid_desc_gs_ms_ns =
-            make_naive_tensor_descriptor(c_gs_ms_ns_lengths, c_gs_ms_ns_strides);
-
-        // transformed tensor C[G = G0 * G1 * ..., MRaw = M0 * M1 * M2 * ... , NRaw = N0 * N1 *
-        // N2 * ...]
-        const auto c_grid_desc_g_mraw_nraw =
-            transform_tensor_descriptor(c_grid_desc_gs_ms_ns,
-                                        make_tuple(make_merge_transform(gLengths),
-                                                   make_merge_transform(mLengths),
-                                                   make_merge_transform(nLengths)),
-                                        make_tuple(gDimIds, mDimIds, nDimIds),
-                                        make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}));
-
-        // this desc is only for calculating batch offset so no padding needed
-        return c_grid_desc_g_mraw_nraw;
+        return Transform::MakeCGridDescriptor_G_M_N(c_gs_ms_ns_lengths_vec, c_gs_ms_ns_strides_vec);
     }
 
     using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1(1, 1, 1));
@@ -731,8 +651,10 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const index_t c_gemm1n  = arg.c_grid_desc_m_n_.GetLength(I1);
         const index_t a_m       = arg.a_grid_desc_ak0_m_ak1_.GetLength(I1);
         const index_t b1_gemm1n = arg.b1_grid_desc_bk0_n_bk1_.GetLength(I1);
+        printf("c_gmo = %d %d %d\n", c_g, c_m, c_gemm1n);
         if(!(c_g == arg.batch_count_ && c_m == a_m && c_gemm1n == b1_gemm1n))
         {
+            std::cout << "1\n";
             return false;
         }
 
@@ -757,12 +679,14 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
              b1_extent_lowest % B1BlockTransferSrcScalarPerVector == 0 &&
              c_extent_lowest % CShuffleBlockTransferScalarPerVector_NPerBlock == 0))
         {
+            std::cout << "2\n";
             return false;
         }
 
         // Check vector store requirement; assumes last dimension in N to be contiguous
         if(arg.c_stride_lowest_ != 1)
         {
+            std::cout << "3\n";
             return false;
         }
 
