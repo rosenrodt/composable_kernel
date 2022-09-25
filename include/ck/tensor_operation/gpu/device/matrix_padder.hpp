@@ -92,6 +92,15 @@ struct GemmGemmPadder
             a_desc_mraw_kraw, make_tuple(MPerTile_, KPerTile_), Sequence<PadM, PadK>{});
     }
 
+    // // B[K, N]
+    // template <typename BDesc_NRaw_KRaw>
+    // __host__ __device__ constexpr auto
+    // PadB0Descriptor_N_K(const BDesc_NRaw_KRaw& b0_desc_nraw_kraw) const
+    // {
+    //     return PadTensorDescriptor(
+    //         b_desc_nraw_kraw, make_tuple(NPerTile_, KPerTile_), Sequence<PadN, PadK>{});
+    // }
+
     // B[K, N]
     template <typename BDesc_NRaw_KRaw>
     __host__ __device__ constexpr auto

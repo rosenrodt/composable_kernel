@@ -85,30 +85,58 @@ static auto MakeGridDescriptorPair(const std::vector<index_t>& gs_ms_ns_lengths_
     return std::make_pair(grid_desc_g_mraw_nraw, grid_desc_mraw_nraw);
 }
 
+template <typename NumDims_G_M_N_K_O, // Sequence<>
+          typename PerBlock_M_N_K_O,  // Sequence<>
+          device::GemmSpecialization GemmSpec>
+struct TransformBatchedContractionContractionToBatchedGemmGemm
+{
+    static constexpr auto I0 = Number<0>{};
+    static constexpr auto I1 = Number<1>{};
+    static constexpr auto I2 = Number<2>{};
+    static constexpr auto I3 = Number<3>{};
+    static constexpr auto I4 = Number<4>{};
 
-    // C
-    static auto MakeCGridDescriptorPair(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
-                                        const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    static constexpr index_t NumDimG = NumDims_G_M_N_K_O::At(I0);
+    static constexpr index_t NumDimM = NumDims_G_M_N_K_O::At(I1);
+    static constexpr index_t NumDimN = NumDims_G_M_N_K_O::At(I2);
+    static constexpr index_t NumDimK = NumDims_G_M_N_K_O::At(I3);
+    static constexpr index_t NumDimO = NumDims_G_M_N_K_O::At(I4);
+
+    static constexpr index_t MPerBlock = PerBlock_M_N_K_O::At(I0);
+    static constexpr index_t NPerBlock = PerBlock_M_N_K_O::At(I1);
+    static constexpr index_t KPerBlock = PerBlock_M_N_K_O::At(I2);
+    static constexpr index_t OPerBlock = PerBlock_M_N_K_O::At(I3);
+
+    static constexpr auto matrix_padder =
+        device::GemmGemmPadder<GemmSpec, index_t, index_t, index_t, index_t>{
+            MPerBlock, NPerBlock, KPerBlock, OPerBlock};
+
+    //
+    // A
+    //
+    static auto MakeAGridDescriptorPair(const std::vector<index_t>& a_gs_ms_ks_lengths_vec,
+                                        const std::vector<index_t>& a_gs_ms_ks_strides_vec)
     {
-        return MakeGridDescriptorPair<MPerBlock, OPerBlock, NumDimG, NumDimM, NumDimO>(
-            c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec);
+        return MakeGridDescriptorPair<MPerBlock, KPerBlock, NumDimG, NumDimM, NumDimK>(
+            a_gs_ms_ks_lengths_vec, a_gs_ms_ks_strides_vec);
     }
 
-    static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
-                                          const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    // TODO: rename to G_MRaw_KRaw
+    static auto MakeAGridDescriptor_G_M_K(const std::vector<index_t>& a_gs_ms_ks_lengths_vec,
+                                          const std::vector<index_t>& a_gs_ms_ks_strides_vec)
     {
-        return MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).first;
+        return MakeAGridDescriptorPair(a_gs_ms_ks_lengths_vec, a_gs_ms_ks_strides_vec).first;
     }
-    static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
-                                        const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    static auto MakeAGridDescriptor_M_K(const std::vector<index_t>& a_gs_ms_ks_lengths_vec,
+                                        const std::vector<index_t>& a_gs_ms_ks_strides_vec)
     {
-        return matrix_padder.PadCDescriptor_M_N(
-            MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).second);
+        return matrix_padder.PadADescriptor_M_K(
+            MakeAGridDescriptorPair(a_gs_ms_ks_lengths_vec, a_gs_ms_ks_strides_vec).second);
     }
 
     template <typename AGridDesc_M_K, typename Number>
     __host__ __device__ static constexpr auto
-    MakeDefaultAGridDescriptor_AK0_M_AK1(const AGridDesc_M_K& a_grid_desc_m_k, const Number& AK1)
+    MakeAGridDescriptor_AK0_M_AK1(const AGridDesc_M_K& a_grid_desc_m_k, const Number& AK1)
     {
         const auto M = a_grid_desc_m_k.GetLength(I0);
         const auto K = a_grid_desc_m_k.GetLength(I1);
@@ -122,9 +150,33 @@ static auto MakeGridDescriptorPair(const std::vector<index_t>& gs_ms_ns_lengths_
                                            make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
     }
 
+    //
+    // B (alias of B0)
+    //
+    static auto MakeB0GridDescriptorPair(const std::vector<index_t>& b0_gs_ns_ks_lengths_vec,
+                                         const std::vector<index_t>& b0_gs_ns_ks_strides_vec)
+    {
+        return MakeGridDescriptorPair<NPerBlock, KPerBlock, NumDimG, NumDimN, NumDimK>(
+            b0_gs_ns_ks_lengths_vec, b0_gs_ns_ks_strides_vec);
+    }
+
+    // TODO: rename to G_MRaw_NRaw
+    static auto MakeB0GridDescriptor_G_N_K(const std::vector<index_t>& b0_gs_ns_ks_lengths_vec,
+                                           const std::vector<index_t>& b0_gs_ns_ks_strides_vec)
+    {
+        return MakeB0GridDescriptorPair(b0_gs_ns_ks_lengths_vec, b0_gs_ns_ks_strides_vec).first;
+    }
+    static auto MakeB0GridDescriptor_N_K(const std::vector<index_t>& b0_gs_ns_ks_lengths_vec,
+                                         const std::vector<index_t>& b0_gs_ns_ks_strides_vec)
+    {
+        // alias of matrix_padder.PadB0Descriptor_N_K
+        return matrix_padder.PadBDescriptor_N_K(
+            MakeB0GridDescriptorPair(b0_gs_ns_ks_lengths_vec, b0_gs_ns_ks_strides_vec).second);
+    }
+
     template <typename BGridDesc_N_K, typename Number>
     __host__ __device__ static constexpr auto
-    MakeDefaultBGridDescriptor_BK0_N_BK1(const BGridDesc_N_K& b_grid_desc_n_k, const Number& BK1)
+    MakeB0GridDescriptor_BK0_N_BK1(const BGridDesc_N_K& b_grid_desc_n_k, const Number& BK1)
     {
         const auto N = b_grid_desc_n_k.GetLength(I0);
         const auto K = b_grid_desc_n_k.GetLength(I1);
@@ -138,9 +190,34 @@ static auto MakeGridDescriptorPair(const std::vector<index_t>& gs_ms_ns_lengths_
                                            make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
     }
 
+    //
+    // B1
+    //
+    static auto MakeB1GridDescriptorPair(const std::vector<index_t>& b1_gs_os_ns_lengths_vec,
+                                         const std::vector<index_t>& b1_gs_os_ns_strides_vec)
+    {
+        return MakeGridDescriptorPair<OPerBlock, NPerBlock, NumDimG, NumDimO, NumDimN>(
+            b1_gs_os_ns_lengths_vec, b1_gs_os_ns_strides_vec);
+    }
+
+    // TODO: rename to G_NRaw_KRaw
+    static auto MakeB1GridDescriptor_G_N_K(const std::vector<index_t>& b1_gs_os_ns_lengths_vec,
+                                           const std::vector<index_t>& b1_gs_os_ns_strides_vec)
+    {
+        return MakeB1GridDescriptorPair(b1_gs_os_ns_lengths_vec, b1_gs_os_ns_strides_vec).first;
+    }
+    static auto MakeB1GridDescriptor_N_K(const std::vector<index_t>& b1_gs_os_ns_lengths_vec,
+                                         const std::vector<index_t>& b1_gs_os_ns_strides_vec)
+    {
+        // alias of matrix_padder.PadB1Descriptor_O_N
+        return matrix_padder.PadB1Descriptor_N_K(
+            MakeB1GridDescriptorPair(b1_gs_os_ns_lengths_vec, b1_gs_os_ns_strides_vec).second);
+    }
+
     template <typename B1GridDesc_N_K, typename Number>
     __host__ __device__ static constexpr auto
-    MakeDefaultB1GridDescriptor_BK0_N_BK1(const B1GridDesc_N_K& b1_grid_desc_n_k, const Number& B1K1)
+    MakeB1GridDescriptor_BK0_N_BK1(const B1GridDesc_N_K& b1_grid_desc_n_k,
+                                          const Number& B1K1)
     {
         const auto N = b1_grid_desc_n_k.GetLength(I0);
         const auto K = b1_grid_desc_n_k.GetLength(I1);
@@ -153,6 +230,29 @@ static auto MakeGridDescriptorPair(const std::vector<index_t>& gs_ms_ns_lengths_
                        make_pass_through_transform(N)),
             make_tuple(Sequence<1>{}, Sequence<0>{}),
             make_tuple(Sequence<0, 2>{}, Sequence<1>{}));
+    }
+
+    //
+    // C
+    //
+    static auto MakeCGridDescriptorPair(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
+                                        const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    {
+        return MakeGridDescriptorPair<MPerBlock, OPerBlock, NumDimG, NumDimM, NumDimO>(
+            c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec);
+    }
+
+    // TODO: rename to G_MRaw_NRaw
+    static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
+                                          const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    {
+        return MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).first;
+    }
+    static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_os_lengths_vec,
+                                        const std::vector<index_t>& c_gs_ms_os_strides_vec)
+    {
+        return matrix_padder.PadCDescriptor_M_N(
+            MakeCGridDescriptorPair(c_gs_ms_os_lengths_vec, c_gs_ms_os_strides_vec).second);
     }
 
 };
