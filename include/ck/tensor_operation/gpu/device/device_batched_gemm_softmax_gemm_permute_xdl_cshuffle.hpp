@@ -123,7 +123,7 @@ template <index_t NumDimG,
           index_t NumDimM,
           index_t NumDimN,
           index_t NumDimK,
-          index_t NumDimO,
+          index_t NumDimO, // NumDimGemm1N
           typename ADataType,
           typename BDataType,
           typename B1DataType,
@@ -197,6 +197,15 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 {
     static_assert(NumDimG > 0 && NumDimM > 0 && NumDimN > 0 && NumDimK > 0 && NumDimO > 0,
                   "Number of dimension must be greater than 0");
+
+#if 0
+    static constexpr index_t NumDimGemm0M = NumDimM;
+    static constexpr index_t NumDimGemm0N = NumDimN;
+    static constexpr index_t NumDimGemm0K = NumDimK;
+    static constexpr index_t NumDimGemm1M = NumDimM;
+    static constexpr index_t NumDimGemm1N = NumDimO;
+    static constexpr index_t NumDimGemm1K = NumDimN;
+#endif
 
     using DeviceOp = DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle;
 
@@ -419,12 +428,18 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               b1_element_op_{b1_element_op},
               c_element_op_{c_element_op},
               c0_matrix_mask_{b_grid_desc_g_n_k_.GetLength(I1)},
-              raw_lengths_m_n_k_o_{c_grid_desc_g_m_n_.GetLength(I1),
-                                   c_grid_desc_g_m_n_.GetLength(I2),
-                                   b_grid_desc_g_n_k_.GetLength(I2),
-                                   b1_grid_desc_g_n_k_.GetLength(I2)},
-              c_extent_lowest_{c_gs_ms_gemm1ns_lengths.back()},
-              c_stride_lowest_{c_gs_ms_gemm1ns_strides.back()},
+              raw_lengths_mz_nz_kz_gemm1nz_{a_gs_ms_ks_lengths[NumDimG + NumDimM - 1],
+                                            b_gs_ns_ks_lengths[NumDimG + NumDimN - 1],
+                                            b_gs_ns_ks_lengths[NumDimG + NumDimN + NumDimK - 1],
+                                            b1_gs_gemm1ns_gemm1ks_lengths[NumDimG + NumDimO - 1]},
+              a_mz_kz_strides_{a_gs_ms_ks_strides[NumDimG + NumDimM - 1],
+                               a_gs_ms_ks_strides[NumDimG + NumDimM + NumDimK - 1]},
+              b_nz_kz_strides_{b_gs_ns_ks_strides[NumDimG + NumDimN - 1],
+                               b_gs_ns_ks_strides[NumDimG + NumDimN + NumDimK - 1]},
+              b1_nz_kz_strides_{b1_gs_gemm1ns_gemm1ks_strides[NumDimG + NumDimO - 1],
+                                b1_gs_gemm1ns_gemm1ks_strides[NumDimG + NumDimO + NumDimN - 1]},
+              c_mz_gemm1nz_strides_{c_gs_ms_gemm1ns_strides[NumDimG + NumDimM - 1],
+                                   c_gs_ms_gemm1ns_strides[NumDimG + NumDimM + NumDimO - 1]},
               batch_count_{c_grid_desc_g_m_n_.GetLength(I0)},
               compute_base_ptr_of_batch_{
                   a_grid_desc_g_m_k_, b_grid_desc_g_n_k_, b1_grid_desc_g_n_k_, c_grid_desc_g_m_n_}
@@ -493,9 +508,11 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         C0MatrixMask c0_matrix_mask_;
 
         // For robust IsSupportedArgument() check
-        std::vector<index_t> raw_lengths_m_n_k_o_;
-        index_t c_extent_lowest_;
-        index_t c_stride_lowest_;
+        std::vector<index_t> raw_lengths_mz_nz_kz_gemm1nz_;
+        std::vector<index_t> a_mz_kz_strides_;
+        std::vector<index_t> b_nz_kz_strides_;
+        std::vector<index_t> b1_nz_kz_strides_;
+        std::vector<index_t> c_mz_gemm1nz_strides_;
 
         index_t batch_count_;
         ComputeBasePtrOfStridedBatch compute_base_ptr_of_batch_;
@@ -621,20 +638,20 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         // Note: we need raw lengths since threadwise copy can not handle vector load when part of
         // vector is out of bounds
-        // TODO ANT: need lowest dim of MNKO, not merged MNKO
-        const auto MRaw      = arg.raw_lengths_m_n_k_o_[0];
-        const auto NRaw      = arg.raw_lengths_m_n_k_o_[1];
-        const auto KRaw      = arg.raw_lengths_m_n_k_o_[2];
-        const auto Gemm1NRaw = arg.raw_lengths_m_n_k_o_[3];
+        // Note: need lowest dim in Ms/Ns/Ks/Os, not merged M/N/K/O
+        const auto MzRaw      = arg.raw_lengths_mz_nz_kz_gemm1nz_[0];
+        const auto NzRaw      = arg.raw_lengths_mz_nz_kz_gemm1nz_[1];
+        const auto KzRaw      = arg.raw_lengths_mz_nz_kz_gemm1nz_[2];
+        const auto Gemm1NzRaw = arg.raw_lengths_mz_nz_kz_gemm1nz_[3];
 
         // Check scalar per vector requirement
         const auto a_extent_lowest =
-            ABlockTransferSrcVectorDim == 2 ? KRaw : MRaw;
+            ABlockTransferSrcVectorDim == 2 ? KzRaw : MzRaw;
         const auto b_extent_lowest =
-            BBlockTransferSrcVectorDim == 2 ? KRaw : NRaw;
+            BBlockTransferSrcVectorDim == 2 ? KzRaw : NzRaw;
         const auto b1_extent_lowest =
-            B1BlockTransferSrcVectorDim ? Gemm1NRaw : NRaw;
-        const auto c_extent_lowest = arg.c_extent_lowest_;
+            B1BlockTransferSrcVectorDim == 2 ? NzRaw : Gemm1NzRaw;
+        const auto c_extent_lowest = Gemm1NzRaw;
 
         if(!(a_extent_lowest % ABlockTransferSrcScalarPerVector == 0 &&
              b_extent_lowest % BBlockTransferSrcScalarPerVector == 0 &&
@@ -645,8 +662,18 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             return false;
         }
 
-        // Check vector store requirement; assumes last dimension in N to be contiguous
-        if(arg.c_stride_lowest_ != 1)
+        // Check vector load/store requirement
+        const auto a_stride_lowest =
+            ABlockTransferSrcVectorDim == 2 ? arg.a_mz_kz_strides_[1] : arg.a_mz_kz_strides_[0];
+        const auto b_stride_lowest =
+            BBlockTransferSrcVectorDim == 2 ? arg.b_nz_kz_strides_[1] : arg.b_nz_kz_strides_[0];
+        const auto b1_stride_lowest =
+            B1BlockTransferSrcVectorDim == 2 ? arg.b1_nz_kz_strides_[1] : arg.b1_nz_kz_strides_[0];
+        const auto c_stride_lowest =
+            arg.c_mz_gemm1nz_strides_[1]; // cshuffle assumes lowest dim in Gemm1Ns to be contiguous
+
+        if(a_stride_lowest != 1 || b_stride_lowest != 1 || b1_stride_lowest != 1 ||
+           c_stride_lowest != 1)
         {
             std::cout << "3\n";
             return false;

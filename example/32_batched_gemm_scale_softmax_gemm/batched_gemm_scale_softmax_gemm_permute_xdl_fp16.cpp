@@ -45,13 +45,6 @@ using AccDataType      = F32;
 using CShuffleDataType = F32;
 using CDataType        = F16;
 
-// using ALayout  = Row;
-// using B0Layout = Col;
-// using B1Layout = Row;
-
-// using CPermuteNumDims_G_M_O =
-//     S<2, 1, 1>; // "using CLayout = Row" has been replaced by CPermuteNumDims_G_M_O
-
 static constexpr ck::index_t NumDimG = 2;
 static constexpr ck::index_t NumDimM = 1;
 static constexpr ck::index_t NumDimN = 1;
@@ -64,7 +57,7 @@ using Acc0ElementOp = ck::tensor_operation::element_wise::Scale;
 using B1ElementOp   = PassThrough;
 using CElementOp    = PassThrough;
 
-static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::MNKOPadding;
+static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::Default;
 
 using DeviceGemmInstance =
     ck::tensor_operation::device::DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle<
@@ -155,7 +148,7 @@ int main(int argc, char* argv[])
     int init_method      = 1;
     bool time_kernel     = false;
 
-#if 0
+#if 1
     // GEMM shape for A/B0/B1/C
     // C_g_m_o = A_g_m_k * B0_g_k_n * B1_g_n_o
     ck::index_t M = 120;
