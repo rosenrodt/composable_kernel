@@ -179,7 +179,11 @@ template <index_t NumDimG,
           bool MaskOutUpperTriangle,
           LoopScheduler LoopSched = LoopScheduler::Default>
 struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
-    : public DeviceBatchedGemmSoftmaxGemmPermute<NumDimG, NumDimM, NumDimN, NumDimK, NumDimO,
+    : public DeviceBatchedGemmSoftmaxGemmPermute<NumDimG,
+                                                 NumDimM,
+                                                 NumDimN,
+                                                 NumDimK,
+                                                 NumDimO,
                                                  ADataType,
                                                  BDataType,
                                                  B1DataType,
@@ -191,6 +195,9 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                                  CElementwiseOperation,
                                                  MaskOutUpperTriangle>
 {
+    static_assert(NumDimG > 0 && NumDimM > 0 && NumDimN > 0 && NumDimK > 0 && NumDimO > 0,
+                  "Number of dimension must be greater than 0");
+
     using DeviceOp = DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle;
 
     static constexpr auto I0 = Number<0>{};
@@ -227,23 +234,6 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                                 b1_gs_gemm1ns_gemm1ks_strides_vec),
             Number<B1K1>{});
     }
-
-    // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
-    // static auto MakeCGridDescriptor_M_N(const std::vector<index_t>& c_gs_ms_gemm1ns_lengths_vec,
-    //                                     const std::vector<index_t>& c_gs_ms_gemm1ns_strides_vec)
-    // {
-    //     return Transform::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths_vec, c_gs_ms_gemm1ns_strides_vec);
-    // }
-
-    // assume C[G0, G1, ..., M0, M1, M2, ..., N0, N1, N2...]
-    // static auto MakeCGridDescriptor_G_M_N(const std::vector<index_t>&
-    // c_gs_ms_gemm1ns_lengths_vec,
-    //                                       const std::vector<index_t>&
-    //                                       c_gs_ms_gemm1ns_strides_vec)
-    // {
-    //     return Transform::MakeCGridDescriptor_G_M_N(c_gs_ms_gemm1ns_lengths_vec,
-    //     c_gs_ms_gemm1ns_strides_vec);
-    // }
 
     using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1({}, {}));
     using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1({}, {}));
@@ -394,8 +384,8 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                  const std::vector<index_t>& b_gs_ns_ks_strides,
                  const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_lengths, // b1_gs_os_ns_lengths
                  const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
-                 const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,              // c_gs_ms_os_lengths
-                 const std::vector<index_t>& c_gs_ms_gemm1ns_strides,              // c_gs_ms_os_strides
+                 const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
+                 const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
                  AElementwiseOperation a_element_op,
                  BElementwiseOperation b_element_op,
                  AccElementwiseOperation acc_element_op,
@@ -412,9 +402,15 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               b1_grid_desc_bk0_n_bk1_{DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(
                   b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
               c_grid_desc_m_n_{Transform::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths,
-                                                                 c_gs_ms_gemm1ns_strides)},
+                                                                  c_gs_ms_gemm1ns_strides)},
+              a_grid_desc_g_m_k_{
+                  Transform::MakeAGridDescriptor_G_M_K(a_gs_ms_ks_lengths, a_gs_ms_ks_strides)},
+              b_grid_desc_g_n_k_{
+                  Transform::MakeB0GridDescriptor_G_N_K(b_gs_ns_ks_lengths, b_gs_ns_ks_strides)},
+              b1_grid_desc_g_n_k_{Transform::MakeB1GridDescriptor_G_N_K(
+                  b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
               c_grid_desc_g_m_n_{Transform::MakeCGridDescriptor_G_M_N(c_gs_ms_gemm1ns_lengths,
-                                                                     c_gs_ms_gemm1ns_strides)},
+                                                                      c_gs_ms_gemm1ns_strides)},
               c_grid_desc_mblock_mperblock_nblock_nperblock_{},
               block_2_ctile_map_{GridwiseGemm::MakeDefaultBlock2CTileMap(c_grid_desc_m_n_)},
               a_element_op_{a_element_op},
@@ -423,14 +419,15 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               b1_element_op_{b1_element_op},
               c_element_op_{c_element_op},
               c0_matrix_mask_{c_grid_desc_g_m_n_.GetLength(I2)},
+              raw_lengths_m_n_k_o_{c_grid_desc_g_m_n_.GetLength(I1),
+                                   c_grid_desc_g_m_n_.GetLength(I2),
+                                   b_grid_desc_g_n_k_.GetLength(I2),
+                                   b1_grid_desc_g_n_k_.GetLength(I2)},
               c_extent_lowest_{c_gs_ms_gemm1ns_lengths.back()},
               c_stride_lowest_{c_gs_ms_gemm1ns_strides.back()},
               batch_count_{c_grid_desc_g_m_n_.GetLength(I0)},
               compute_base_ptr_of_batch_{
-                  Transform::MakeAGridDescriptor_G_M_K(a_gs_ms_ks_lengths, a_gs_ms_ks_strides),
-                  Transform::MakeB0GridDescriptor_G_N_K(b_gs_ns_ks_lengths, b_gs_ns_ks_strides),
-                  Transform::MakeB1GridDescriptor_G_N_K(b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides),
-                  c_grid_desc_g_m_n_}
+                  a_grid_desc_g_m_k_, b_grid_desc_g_n_k_, b1_grid_desc_g_n_k_, c_grid_desc_g_m_n_}
         {
             if(GridwiseGemm::CheckValidity(a_grid_desc_ak0_m_ak1_,
                                            b_grid_desc_bk0_n_bk1_,
@@ -444,6 +441,26 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             }
         }
 
+        void Print() const
+        {
+            std::cout << "a_grid_desc_g_m_k_: " << a_grid_desc_g_m_k_.GetLength(I0) << ", "
+                      << a_grid_desc_g_m_k_.GetLength(I1) << ", "
+                      << a_grid_desc_g_m_k_.GetLength(I2) << '\n';
+            // a_grid_desc_g_m_k_.Print();
+            std::cout << "b_grid_desc_g_n_k_: " << b_grid_desc_g_n_k_.GetLength(I0) << ", "
+                      << b_grid_desc_g_n_k_.GetLength(I1) << ", "
+                      << b_grid_desc_g_n_k_.GetLength(I2) << '\n';
+            // b_grid_desc_g_n_k_.Print();
+            std::cout << "b1_grid_desc_g_n_k_: " << b1_grid_desc_g_n_k_.GetLength(I0) << ", "
+                      << b1_grid_desc_g_n_k_.GetLength(I1) << ", "
+                      << b1_grid_desc_g_n_k_.GetLength(I2) << '\n';
+            // b1_grid_desc_g_n_k_.Print();
+            std::cout << "c_grid_desc_g_m_n_: " << c_grid_desc_g_m_n_.GetLength(I0) << ", "
+                      << c_grid_desc_g_m_n_.GetLength(I1) << ", "
+                      << c_grid_desc_g_m_n_.GetLength(I2) << '\n';
+            // c_grid_desc_g_m_n_.Print();
+        }
+
         // pointers
         const ADataType* p_a_grid_;
         const BDataType* p_b_grid_;
@@ -455,6 +472,9 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1_;
         B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1_;
         CGridDesc_M_N c_grid_desc_m_n_;
+        AGridDesc_G_M_K a_grid_desc_g_m_k_;
+        BGridDesc_G_N_K b_grid_desc_g_n_k_;
+        B1GridDesc_G_N_K b1_grid_desc_g_n_k_;
         CGridDesc_G_M_N c_grid_desc_g_m_n_;
         typename GridwiseGemm::CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
             c_grid_desc_mblock_mperblock_nblock_nperblock_;
@@ -473,7 +493,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         C0MatrixMask c0_matrix_mask_;
 
         // For robust IsSupportedArgument() check
-        // std::vector<index_t> raw_lengths_m_n_k_o_;
+        std::vector<index_t> raw_lengths_m_n_k_o_;
         index_t c_extent_lowest_;
         index_t c_stride_lowest_;
 
@@ -579,6 +599,8 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
     static bool IsSupportedArgument(const Argument& arg)
     {
+        arg.Print();
+
         if(!(ck::get_device_name() == "gfx908" || ck::get_device_name() == "gfx90a"))
         {
             return false;
@@ -599,28 +621,29 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         // Note: we need raw lengths since threadwise copy can not handle vector load when part of
         // vector is out of bounds
-        // const auto MRaw      = arg.raw_lengths_m_n_k_o_[0];
-        // const auto NRaw      = arg.raw_lengths_m_n_k_o_[1];
-        // const auto KRaw      = arg.raw_lengths_m_n_k_o_[2];
-        // const auto Gemm1NRaw = arg.raw_lengths_m_n_k_o_[3];
+        // TODO ANT: need lowest dim of MNKO, not merged MNKO
+        const auto MRaw      = arg.raw_lengths_m_n_k_o_[0];
+        const auto NRaw      = arg.raw_lengths_m_n_k_o_[1];
+        const auto KRaw      = arg.raw_lengths_m_n_k_o_[2];
+        const auto Gemm1NRaw = arg.raw_lengths_m_n_k_o_[3];
 
         // Check scalar per vector requirement
-        // const auto a_extent_lowest =
-        //     is_same_v<tensor_layout::gemm::RowMajor, ALayout> ? KRaw : MRaw;
-        // const auto b_extent_lowest =
-        //     is_same_v<tensor_layout::gemm::RowMajor, BLayout> ? NRaw : KRaw;
-        // const auto b1_extent_lowest =
-        //     is_same_v<tensor_layout::gemm::RowMajor, B1Layout> ? Gemm1NRaw : NRaw;
-        // const auto c_extent_lowest = arg.c_extent_lowest_;
+        const auto a_extent_lowest =
+            ABlockTransferSrcVectorDim == 2 ? KRaw : MRaw;
+        const auto b_extent_lowest =
+            BBlockTransferSrcVectorDim == 2 ? KRaw : NRaw;
+        const auto b1_extent_lowest =
+            B1BlockTransferSrcVectorDim ? Gemm1NRaw : NRaw;
+        const auto c_extent_lowest = arg.c_extent_lowest_;
 
-        // if(!(a_extent_lowest % ABlockTransferSrcScalarPerVector == 0 &&
-        //      b_extent_lowest % BBlockTransferSrcScalarPerVector == 0 &&
-        //      b1_extent_lowest % B1BlockTransferSrcScalarPerVector == 0 &&
-        //      c_extent_lowest % CShuffleBlockTransferScalarPerVector_NPerBlock == 0))
-        // {
-        //     std::cout << "2\n";
-        //     return false;
-        // }
+        if(!(a_extent_lowest % ABlockTransferSrcScalarPerVector == 0 &&
+             b_extent_lowest % BBlockTransferSrcScalarPerVector == 0 &&
+             b1_extent_lowest % B1BlockTransferSrcScalarPerVector == 0 &&
+             c_extent_lowest % CShuffleBlockTransferScalarPerVector_NPerBlock == 0))
+        {
+            std::cout << "2\n";
+            return false;
+        }
 
         // Check vector store requirement; assumes last dimension in N to be contiguous
         if(arg.c_stride_lowest_ != 1)
@@ -653,8 +676,8 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                  const std::vector<index_t>& b_gs_ns_ks_strides,
                  const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_lengths, // b1_gs_os_ns_lengths
                  const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
-                 const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,        // c_gs_ms_os_lengths
-                 const std::vector<index_t>& c_gs_ms_gemm1ns_strides,        // c_gs_ms_os_strides
+                 const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
+                 const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
                  AElementwiseOperation a_element_op,
                  BElementwiseOperation b_element_op,
                  AccElementwiseOperation acc_element_op,
