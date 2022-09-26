@@ -418,7 +418,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               acc_element_op_{acc_element_op},
               b1_element_op_{b1_element_op},
               c_element_op_{c_element_op},
-              c0_matrix_mask_{c_grid_desc_g_m_n_.GetLength(I2)},
+              c0_matrix_mask_{b_grid_desc_g_n_k_.GetLength(I1)},
               raw_lengths_m_n_k_o_{c_grid_desc_g_m_n_.GetLength(I1),
                                    c_grid_desc_g_m_n_.GetLength(I2),
                                    b_grid_desc_g_n_k_.GetLength(I2),

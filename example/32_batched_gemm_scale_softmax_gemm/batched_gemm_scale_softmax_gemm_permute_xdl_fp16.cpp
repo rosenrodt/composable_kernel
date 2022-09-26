@@ -64,11 +64,7 @@ using Acc0ElementOp = ck::tensor_operation::element_wise::Scale;
 using B1ElementOp   = PassThrough;
 using CElementOp    = PassThrough;
 
-// build/bin/example_batched_gemm_scale_softmax_gemm_permute_xdl_fp16 1 4 1 128 128 32 64 1 1 1 2>&1 | less
-// MNKOPadding error, Default OK
-//
-// static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::MNKOPadding;
-static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::Default;
+static constexpr auto GemmSpec = ck::tensor_operation::device::GemmSpecialization::MNKOPadding;
 
 using DeviceGemmInstance =
     ck::tensor_operation::device::DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle<
