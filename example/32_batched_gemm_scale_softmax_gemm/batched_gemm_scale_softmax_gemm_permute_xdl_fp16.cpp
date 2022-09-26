@@ -197,6 +197,7 @@ int main(int argc, char* argv[])
         exit(0);
     }
 
+#if 1
     // A layout [G0, M, G1, K]
     std::vector<ck::index_t> a_gs_ms_ks_lengths{G0, G1, M, K};
     std::vector<ck::index_t> a_gs_ms_ks_strides{M * G1 * K, K, G1 * K, 1};
@@ -212,6 +213,23 @@ int main(int argc, char* argv[])
     // C layout [G0, M, G1, O]
     std::vector<ck::index_t> c_gs_ms_os_lengths{G0, G1, M, O};
     std::vector<ck::index_t> c_gs_ms_os_strides{M * G1 * O, O, G1 * O, 1};
+#else
+    // A layout [G0, G1, M, K]
+    std::vector<ck::index_t> a_gs_ms_ks_lengths{G0, G1, M, K};
+    std::vector<ck::index_t> a_gs_ms_ks_strides{G1 * M * K, M * K, K, 1};
+
+    // B0 layout [G0, G1, N, K]
+    std::vector<ck::index_t> b0_gs_ns_ks_lengths{G0, G1, N, K};
+    std::vector<ck::index_t> b0_gs_ns_ks_strides{G1 * N * K, N * K, K, 1};
+
+    // B1 layout [G0, G1, N, O]
+    std::vector<ck::index_t> b1_gs_os_ns_lengths{G0, G1, O, N};
+    std::vector<ck::index_t> b1_gs_os_ns_strides{G1 * N * O, N * O, 1, O};
+
+    // C layout [G0, G1, M, O]
+    std::vector<ck::index_t> c_gs_ms_os_lengths{G0, G1, M, O};
+    std::vector<ck::index_t> c_gs_ms_os_strides{G1 * M * O, M * O, O, 1};
+#endif
 
     Tensor<ADataType> a_gs_ms_ks(a_gs_ms_ks_lengths, a_gs_ms_ks_strides);
     Tensor<B0DataType> b0_gs_ns_ks(b0_gs_ns_ks_lengths, b0_gs_ns_ks_strides);
