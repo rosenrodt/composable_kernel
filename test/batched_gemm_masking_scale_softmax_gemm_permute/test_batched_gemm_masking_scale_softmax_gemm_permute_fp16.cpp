@@ -10,8 +10,8 @@ class TestBatchedGemmMaskingScaleSoftmaxGemmPermuteFP16
 {
 };
 
-using NoMask = std::true_type;
-using Masked = std::false_type;
+using Masked = std::true_type;
+using NoMask = std::false_type;
 
 using I1_t = ck::Number<1>;
 using I2_t = ck::Number<2>;
