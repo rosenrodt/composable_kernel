@@ -667,6 +667,37 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         constexpr auto tn3 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I6);
         constexpr auto tn4 = thread_cluster_m0_n0_m1_n1_m2_n2_n3_n4.At(I7);
 
+        // 8d thread_desc in thread scope
+        constexpr auto c_thread_lengths =
+            blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
+
+        // 8d block_desc in block scope
+        constexpr auto c_block_lengths =
+            blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
+
+        constexpr auto bm0 = c_block_lengths[I0];
+        constexpr auto bn0 = c_block_lengths[I1];
+        constexpr auto bm1 = c_block_lengths[I2];
+        constexpr auto bn1 = c_block_lengths[I3];
+        constexpr auto bm2 = c_block_lengths[I4];
+        constexpr auto bn2 = c_block_lengths[I5];
+        constexpr auto bn3 = c_block_lengths[I6];
+        constexpr auto bn4 = c_block_lengths[I7];
+
+        // works like multi-dimension static_for (static_ford), but provides both the linear
+        // index as well as n-d index
+        using Acc0TileIterator = SpaceFillingCurve<
+            decltype(c_thread_lengths),
+            typename arithmetic_sequence_gen<0, c_thread_lengths.Size(), 1>::type,
+            typename uniform_sequence_gen<c_thread_lengths.Size(), 1>::type,
+            false>; // SnakeCurved
+
+        constexpr auto block_idx_to_m_n_adaptor = make_single_stage_tensor_adaptor(
+            make_tuple(make_unmerge_transform(make_tuple(bm0, bm1, bm2)),
+                        make_unmerge_transform(make_tuple(bn0, bn1, bn2, bn3, bn4))),
+            make_tuple(Sequence<0>{}, Sequence<1>{}),
+            make_tuple(Sequence<0, 2, 4>{}, Sequence<1, 3, 5, 6, 7>{}));
+
         // get acc0 thread map
         constexpr auto m0_n_m1_to_m_n_adaptor = make_single_stage_tensor_adaptor(
             make_tuple(make_unmerge_transform(make_tuple(tm0 * tm1, tm2)),
@@ -750,39 +781,8 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             // do MNK padding or upper triangular masking
             if constexpr(MaskOutUpperTriangle || PadN)
             {
-                // 8d thread_desc in thread scope
-                constexpr auto c_thread_lengths =
-                    blockwise_gemm.GetCThreadDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
-
-                // 8d block_desc in block scope
-                constexpr auto c_block_lengths =
-                    blockwise_gemm.GetCBlockDescriptor_M0_N0_M1_N1_M2_N2_N3_N4().GetLengths();
-
-                constexpr auto M0 = c_block_lengths[I0];
-                constexpr auto N0 = c_block_lengths[I1];
-                constexpr auto M1 = c_block_lengths[I2];
-                constexpr auto N1 = c_block_lengths[I3];
-                constexpr auto M2 = c_block_lengths[I4];
-                constexpr auto N2 = c_block_lengths[I5];
-                constexpr auto N3 = c_block_lengths[I6];
-                constexpr auto N4 = c_block_lengths[I7];
-
-                // works like multi-dimension static_for (static_ford), but provides both the linear
-                // index as well as n-d index
-                using Acc0TileIterator = SpaceFillingCurve<
-                    decltype(c_thread_lengths),
-                    typename arithmetic_sequence_gen<0, c_thread_lengths.Size(), 1>::type,
-                    typename uniform_sequence_gen<c_thread_lengths.Size(), 1>::type,
-                    false>; // SnakeCurved
-
                 auto acc0_thread_origin = blockwise_gemm.CalculateCThreadOriginDataIndex8D(
                     Number<0>{}, Number<0>{}, Number<0>{}, Number<0>{});
-
-                constexpr auto block_idx_to_m_n_adaptor = make_single_stage_tensor_adaptor(
-                    make_tuple(make_unmerge_transform(make_tuple(M0, M1, M2)),
-                               make_unmerge_transform(make_tuple(N0, N1, N2, N3, N4))),
-                    make_tuple(Sequence<0>{}, Sequence<1>{}),
-                    make_tuple(Sequence<0, 2, 4>{}, Sequence<1, 3, 5, 6, 7>{}));
 
                 static_for<0, Acc0TileIterator::GetNumOfAccess(), 1>{}([&](auto i) {
                     auto acc0_thread_idx = Acc0TileIterator::GetIndex(i) + acc0_thread_origin;
