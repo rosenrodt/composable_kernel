@@ -3,7 +3,26 @@
 
 #pragma once
 
-bool run_gemm(const ProblemSize& problem_size, const ExecutionConfig& config)
+template <typename ALayout,
+          typename BLayout,
+          typename CLayout,
+          typename ADataType,
+          typename BDataType,
+          typename CDataType,
+          typename AElementwiseOperation,
+          typename BElementwiseOperation,
+          typename CElementwiseOperation>
+bool run_gemm(const ProblemSize& problem_size,
+              const ExecutionConfig& config,
+              ck::tensor_operation::device::DeviceGemm<ALayout,
+                         BLayout,
+                         CLayout,
+                         ADataType,
+                         BDataType,
+                         CDataType,
+                         AElementwiseOperation,
+                         BElementwiseOperation,
+                         CElementwiseOperation>* gemm_instance_ptr)
 {
 #if defined(BUILD_INT4_EXAMPLE) && defined(CK_EXPERIMENTAL_BIT_INT_EXTENSION_INT4)
     static_assert(sizeof(ck::int4_t) == sizeof(int8_t));
@@ -74,9 +93,9 @@ bool run_gemm(const ProblemSize& problem_size, const ExecutionConfig& config)
     auto c_element_op = CElementOp{};
 
     // do GEMM
-    auto gemm     = DeviceGemmInstance{};
-    auto invoker  = gemm.MakeInvoker();
-    auto argument = gemm.MakeArgument(
+    auto& gemm    = *gemm_instance_ptr;
+    auto invoker  = gemm.MakeInvokerPointer();
+    auto argument = gemm.MakeArgumentPointer(
 #ifdef BUILD_INT4_EXAMPLE
         static_cast<KernelADataType*>(a_m_k_device_buf.GetDeviceBuffer()),
         static_cast<KernelBDataType*>(b_k_n_device_buf.GetDeviceBuffer()),
@@ -96,14 +115,14 @@ bool run_gemm(const ProblemSize& problem_size, const ExecutionConfig& config)
         b_element_op,
         c_element_op);
 
-    if(!gemm.IsSupportedArgument(argument))
+    if(!gemm.IsSupportedArgument(argument.get()))
     {
         std::cerr << gemm.GetTypeString() << " does not support this problem" << std::endl;
 
         return true;
     }
 
-    float ave_time = invoker.Run(argument, StreamConfig{nullptr, config.time_kernel});
+    float ave_time = invoker->Run(argument.get(), StreamConfig{nullptr, config.time_kernel});
 
     std::size_t flop = 2_uz * M * N * K;
     std::size_t num_btype =
@@ -142,12 +161,4 @@ bool run_gemm(const ProblemSize& problem_size, const ExecutionConfig& config)
     }
 
     return true;
-}
-
-bool run_gemm_example(int argc, char* argv[])
-{
-    ProblemSize problem_size;
-    ExecutionConfig config;
-
-    return !parse_cmd_args(argc, argv, problem_size, config) || run_gemm(problem_size, config);
 }
