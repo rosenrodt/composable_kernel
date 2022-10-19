@@ -73,22 +73,48 @@ struct LayoutConfig
 
 int main(int argc, char* argv[])
 {
+    // Class DeviceGemm is templated by layout and precision types so it is not an option to contain
+    // them in a single vector. Instead we use abstract BaseOperator class and dynamic_cast() it
+    // upon invocation.
+    // And since DeviceGemm does not expose template arg information, an extra book keeping class
+    // LayoutConfig is used for determining which type a BaseOperator instance should be cast to.
     using OpFactoryFn = void (*)(std::vector<std::unique_ptr<BaseOperator>>&);
 
     const std::vector<std::tuple<ProblemSize, LayoutConfig, OpFactoryFn>> problems = {
-    // clang-format off
+    // 104 tiles
+    {ProblemSize{2048, 3328, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x256},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x64},
+    {ProblemSize{2048, 3328, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_256x256},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x64},
+    {ProblemSize{2048, 3328, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_256x128},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x64},
+    {ProblemSize{2048, 3328, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x256},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x64},
+    // 110 tiles
+    {ProblemSize{2560, 2816, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x256},
+    {ProblemSize{2560, 1408, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x128},
+    {ProblemSize{1280, 1408, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x128},
+    {ProblemSize{1280,  704, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x64},
+    {ProblemSize{2560, 2816, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_256x256},
+    {ProblemSize{2560, 1408, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_256x128},
+    {ProblemSize{1280, 1408, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x128},
+    {ProblemSize{1280,  704, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x64},
+    {ProblemSize{2560, 2816, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_256x128},
+    {ProblemSize{2560, 1408, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_256x128},
+    {ProblemSize{1280, 1408, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x128},
+    {ProblemSize{1280,  704, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x64},
+    {ProblemSize{2560, 2816, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x256},
+    {ProblemSize{2560, 1408, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x128},
+    {ProblemSize{1280, 1408, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x128},
+    {ProblemSize{1280,  704, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x64},
     // clang-format on
     };
 
@@ -103,9 +129,9 @@ int main(int argc, char* argv[])
 
     for (auto& p : problems)
     {
-        const ProblemSize& problem_size = std::get<0>(p);
+        const ProblemSize& problem_size   = std::get<0>(p);
         const LayoutConfig& layout_config = std::get<1>(p);
-        const auto& factory = std::get<2>(p);
+        const auto& factory               = std::get<2>(p);
         std::vector<std::unique_ptr<BaseOperator>> ops;
         factory(ops);
 
@@ -130,6 +156,8 @@ int main(int argc, char* argv[])
             run_gemm(problem_size, config, op_ptr);
         }
     }
+
+    return 0;
 }
 
 template <typename ALayout,

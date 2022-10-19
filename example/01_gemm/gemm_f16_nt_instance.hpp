@@ -16,8 +16,6 @@ namespace tensor_operation {
 namespace device {
 namespace instance {
 
-// TODO ANT: 256x256
-
 using F16 = ck::half_t;
 using F32 = float;
 
@@ -28,6 +26,8 @@ template <ck::index_t... Is>
 using S = ck::Sequence<Is...>;
 
 using PassThrough = ck::tensor_operation::element_wise::PassThrough;
+
+void add_gemm_f16_nt_256x256(std::vector<std::unique_ptr<BaseOperator>>& instances);
 
 void add_gemm_f16_nt_256x128(std::vector<std::unique_ptr<BaseOperator>>& instances);
 
