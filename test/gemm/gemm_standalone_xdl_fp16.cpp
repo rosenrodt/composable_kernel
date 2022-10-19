@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2018-2022, Advanced Micro Devices, Inc. All rights reserved.
 
-#include "common.hpp"
+#include "gemm_util.hpp"
+
+#include "ck/library/utility/fill.hpp"
 
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl_cshuffle.hpp"
@@ -11,6 +13,13 @@
 #include "gemm_f16_tn_instance.hpp"
 #include "gemm_f16_tt_instance.hpp"
 
+template <ck::index_t... Is>
+using S = ck::Sequence<Is...>;
+
+using Row = ck::tensor_layout::gemm::RowMajor;
+using Col = ck::tensor_layout::gemm::ColumnMajor;
+
+using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 using F16              = ck::half_t;
 using ADataType        = F16;
 using BDataType        = F16;
@@ -41,6 +50,31 @@ using DeviceGemmTN =
 using DeviceGemmTT =
     DeviceGemm<Row, Row, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
 
+struct ProblemSize
+{
+    ck::index_t M;
+    ck::index_t N;
+    ck::index_t K;
+
+    ck::index_t StrideA;
+    ck::index_t StrideB;
+    ck::index_t StrideC;
+};
+
+struct ExecutionConfig
+{
+    bool do_verification = true;
+    int init_method      = 1;
+    bool time_kernel     = false;
+};
+
+struct LayoutConfig
+{
+    bool ARowMajor;
+    bool BRowMajor;
+    bool CRowMajor;
+};
+
 template <typename ALayout,
           typename BLayout,
           typename CLayout,
@@ -62,12 +96,6 @@ bool run_gemm(const ProblemSize& problem_size,
                                                        BElementwiseOperation,
                                                        CElementwiseOperation>* gemm_instance_ptr);
 
-struct LayoutConfig
-{
-    bool ARowMajor;
-    bool BRowMajor;
-    bool CRowMajor;
-};
 
 int main(int argc, char* argv[])
 {
@@ -180,7 +208,7 @@ bool run_gemm(const ProblemSize& problem_size,
                                                        BElementwiseOperation,
                                                        CElementwiseOperation>* gemm_instance_ptr)
 {
-    using namespace ck::literals;
+    // using namespace ck::literals;
 
     auto [M, N, K, StrideA, StrideB, StrideC] = problem_size;
 
@@ -259,7 +287,7 @@ bool run_gemm(const ProblemSize& problem_size,
 
     float ave_time = invoker->Run(argument.get(), StreamConfig{nullptr, config.time_kernel});
 
-    std::size_t flop = 2_uz * M * N * K;
+    std::size_t flop = std::size_t(2) * M * N * K;
     std::size_t num_btype =
         sizeof(ADataType) * M * K + sizeof(BDataType) * K * N + sizeof(CDataType) * M * N;
 
