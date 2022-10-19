@@ -155,17 +155,19 @@ bool run_gemm(const ProblemSize& problem_size,
 {
     using namespace ck::literals;
 
-    auto& [M, N, K, StrideA, StrideB, StrideC] = problem_size;
+    auto [M, N, K, StrideA, StrideB, StrideC] = problem_size;
 
     auto f_host_tensor_descriptor =
-        [](std::size_t row, std::size_t col, std::size_t stride, auto layout) {
+        [](ck::index_t row, ck::index_t col, ck::index_t& stride, auto layout) {
             if constexpr(std::is_same_v<decltype(layout), ck::tensor_layout::gemm::RowMajor>)
             {
-                return HostTensorDescriptor({row, col}, {stride == -1_uz ? col : stride, 1_uz});
+                stride = stride == -1 ? col : stride;
+                return HostTensorDescriptor({row, col}, {stride, 1});
             }
             else
             {
-                return HostTensorDescriptor({row, col}, {1_uz, stride == -1_uz ? row : stride});
+                stride = stride == -1 ? row : stride;
+                return HostTensorDescriptor({row, col}, {1, stride});
             }
         };
 
