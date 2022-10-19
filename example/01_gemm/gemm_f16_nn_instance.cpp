@@ -18,8 +18,6 @@ namespace tensor_operation {
 namespace device {
 namespace instance {
 
-// TODO ANT: 256x256
-
 static constexpr auto GemmDefault = ck::tensor_operation::device::GemmSpecialization::Default;
 
 using gemm_f16_nn_256x256 = std::tuple<

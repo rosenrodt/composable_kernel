@@ -11,7 +11,7 @@
 #include "gemm_f16_tn_instance.hpp"
 #include "gemm_f16_tt_instance.hpp"
 
-using F16 = ck::half_t;
+using F16              = ck::half_t;
 using ADataType        = F16;
 using BDataType        = F16;
 using AccDataType      = float;
@@ -31,8 +31,6 @@ using ReferenceGemmInstance = ck::tensor_operation::host::
 
 using ck::tensor_operation::device::BaseOperator;
 using namespace ck::tensor_operation::device;
-
-// TODO ANT: fp16 4 layouts, 4 tile sizes 256x256, 128x256, 128x128, 126x64, 104CU or 110CU
 
 using DeviceGemmNN =
     DeviceGemm<Col, Col, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
@@ -81,6 +79,7 @@ int main(int argc, char* argv[])
     using OpFactoryFn = void (*)(std::vector<std::unique_ptr<BaseOperator>>&);
 
     const std::vector<std::tuple<ProblemSize, LayoutConfig, OpFactoryFn>> problems = {
+        // clang-format off
     // 104 tiles
     {ProblemSize{2048, 3328, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x256},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x128},
@@ -115,19 +114,19 @@ int main(int argc, char* argv[])
     {ProblemSize{2560, 1408, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x128},
     {ProblemSize{1280, 1408, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x128},
     {ProblemSize{1280,  704, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x64},
-    // clang-format on
+        // clang-format on
     };
 
     ExecutionConfig config{true, 1, true};
 
-    if (argc == 4)
+    if(argc == 4)
     {
         config.do_verification = std::stoi(argv[1]);
         config.init_method     = std::stoi(argv[2]);
         config.time_kernel     = std::stoi(argv[3]);
     }
 
-    for (auto& p : problems)
+    for(auto& p : problems)
     {
         const ProblemSize& problem_size   = std::get<0>(p);
         const LayoutConfig& layout_config = std::get<1>(p);
@@ -135,22 +134,22 @@ int main(int argc, char* argv[])
         std::vector<std::unique_ptr<BaseOperator>> ops;
         factory(ops);
 
-        if (!layout_config.ARowMajor && !layout_config.BRowMajor)
+        if(!layout_config.ARowMajor && !layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmNN*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
         }
-        else if (!layout_config.ARowMajor && layout_config.BRowMajor)
+        else if(!layout_config.ARowMajor && layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmNT*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
         }
-        else if (layout_config.ARowMajor && !layout_config.BRowMajor)
+        else if(layout_config.ARowMajor && !layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmTN*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
         }
-        else if (layout_config.ARowMajor && layout_config.BRowMajor)
+        else if(layout_config.ARowMajor && layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmTT*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
@@ -235,21 +234,21 @@ bool run_gemm(const ProblemSize& problem_size,
     auto c_element_op = CElementOp{};
 
     // do GEMM
-    auto& gemm    = *gemm_instance_ptr;
-    auto invoker  = gemm.MakeInvokerPointer();
-    auto argument = gemm.MakeArgumentPointer(
-        static_cast<ADataType*>(a_m_k_device_buf.GetDeviceBuffer()),
-        static_cast<BDataType*>(b_k_n_device_buf.GetDeviceBuffer()),
-        static_cast<CDataType*>(c_m_n_device_buf.GetDeviceBuffer()),
-        M,
-        N,
-        K,
-        StrideA,
-        StrideB,
-        StrideC,
-        a_element_op,
-        b_element_op,
-        c_element_op);
+    auto& gemm   = *gemm_instance_ptr;
+    auto invoker = gemm.MakeInvokerPointer();
+    auto argument =
+        gemm.MakeArgumentPointer(static_cast<ADataType*>(a_m_k_device_buf.GetDeviceBuffer()),
+                                 static_cast<BDataType*>(b_k_n_device_buf.GetDeviceBuffer()),
+                                 static_cast<CDataType*>(c_m_n_device_buf.GetDeviceBuffer()),
+                                 M,
+                                 N,
+                                 K,
+                                 StrideA,
+                                 StrideB,
+                                 StrideC,
+                                 a_element_op,
+                                 b_element_op,
+                                 c_element_op);
 
     if(!gemm.IsSupportedArgument(argument.get()))
     {
