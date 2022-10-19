@@ -6,8 +6,10 @@
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_xdl_cshuffle.hpp"
 
+#include "gemm_f16_nn_instance.hpp"
 #include "gemm_f16_nt_instance.hpp"
 #include "gemm_f16_tn_instance.hpp"
+#include "gemm_f16_tt_instance.hpp"
 
 using F16 = ck::half_t;
 using ADataType        = F16;
@@ -32,10 +34,14 @@ using namespace ck::tensor_operation::device;
 
 // TODO ANT: fp16 4 layouts, 4 tile sizes 256x256, 128x256, 128x128, 126x64, 104CU or 110CU
 
+using DeviceGemmNN =
+    DeviceGemm<Col, Col, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
 using DeviceGemmNT =
     DeviceGemm<Col, Row, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
 using DeviceGemmTN =
     DeviceGemm<Row, Col, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
+using DeviceGemmTT =
+    DeviceGemm<Row, Row, Row, F16, F16, F16, PassThrough, PassThrough, PassThrough>;
 
 template <typename ALayout,
           typename BLayout,
@@ -69,14 +75,20 @@ int main(int argc, char* argv[])
 {
     using OpFactoryFn = void (*)(std::vector<std::unique_ptr<BaseOperator>>&);
 
-    std::vector<std::tuple<ProblemSize, LayoutConfig, OpFactoryFn>> problems = {
+    const std::vector<std::tuple<ProblemSize, LayoutConfig, OpFactoryFn>> problems = {
     // clang-format off
+    {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_256x128},
+    {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x128},
+    {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{false, false, true}, instance::add_gemm_f16_nn_128x64},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{false, true, true}, instance::add_gemm_f16_nt_128x64},
     {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_256x128},
     {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x128},
     {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{true, false, true}, instance::add_gemm_f16_tn_128x64},
+    {ProblemSize{2048, 1664, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_256x128},
+    {ProblemSize{1024, 1664, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x128},
+    {ProblemSize{1024,  832, 4096, -1, -1, -1}, LayoutConfig{true, true, true}, instance::add_gemm_f16_tt_128x64},
     // clang-format on
     };
 
@@ -97,14 +109,24 @@ int main(int argc, char* argv[])
         std::vector<std::unique_ptr<BaseOperator>> ops;
         factory(ops);
 
-        if (!layout_config.ARowMajor && layout_config.BRowMajor)
+        if (!layout_config.ARowMajor && !layout_config.BRowMajor)
+        {
+            auto op_ptr = dynamic_cast<DeviceGemmNN*>(ops[0].get());
+            run_gemm(problem_size, config, op_ptr);
+        }
+        else if (!layout_config.ARowMajor && layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmNT*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
         }
-        if (layout_config.ARowMajor && !layout_config.BRowMajor)
+        else if (layout_config.ARowMajor && !layout_config.BRowMajor)
         {
             auto op_ptr = dynamic_cast<DeviceGemmTN*>(ops[0].get());
+            run_gemm(problem_size, config, op_ptr);
+        }
+        else if (layout_config.ARowMajor && layout_config.BRowMajor)
+        {
+            auto op_ptr = dynamic_cast<DeviceGemmTT*>(ops[0].get());
             run_gemm(problem_size, config, op_ptr);
         }
     }

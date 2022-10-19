@@ -36,6 +36,11 @@
 # add_dependencies(example_gemm_xdl example_gemm_xdl_skip_b_lds_fp16)
 # add_dependencies(example_gemm_xdl example_gemm_xdl_fp64)
 
-add_library(gemm_xdl_fp16_instances STATIC gemm_f16_nt_instance.cpp gemm_f16_tn_instance.cpp)
+add_library(gemm_xdl_fp16_instances STATIC
+    gemm_f16_nn_instance.cpp
+    gemm_f16_nt_instance.cpp
+    gemm_f16_tn_instance.cpp
+    gemm_f16_tt_instance.cpp
+)
 add_example_executable(example_gemm_xdl_fp16 gemm_xdl_fp16.cpp)
 target_link_libraries(example_gemm_xdl_fp16 PRIVATE gemm_xdl_fp16_instances)
