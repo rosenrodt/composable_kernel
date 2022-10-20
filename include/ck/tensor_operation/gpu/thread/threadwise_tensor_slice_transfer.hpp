@@ -215,7 +215,7 @@ struct ThreadwiseTensorSliceTransfer_v1r3
     private:
     DstCoord dst_coord_;
     const ElementwiseOperation element_op_;
-}; // namespace ThreadwiseTensorSliceTransfer_v1r3
+}; // struct ThreadwiseTensorSliceTransfer_v1r3
 
 // Assume:
 //   1. src:
