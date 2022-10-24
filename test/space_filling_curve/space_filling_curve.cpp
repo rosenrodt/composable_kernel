@@ -103,7 +103,7 @@ void traverse_using_space_filling_curve()
                                                    Number<1>{}));
 
     static_for<1, num_access, 1>{}([&](auto i) {
-        constexpr auto idx_curr = SpaceFillingCurve::GetIndex(i);
+        constexpr auto idx_curr = SpaceFillingCurve::GetIndex(i.value);
 
         static_assert(idx_curr[I0] == expected[i][I0]);
         static_assert(idx_curr[I1] == expected[i][I1]);
@@ -117,7 +117,7 @@ void traverse_using_space_filling_curve()
     });
 
     static_for<0, num_access - 1, 1>{}([&](auto i) {
-        constexpr auto idx_curr = SpaceFillingCurve::GetIndex(i);
+        constexpr auto idx_curr = SpaceFillingCurve::GetIndex(i.value);
 
         static_assert(idx_curr[I0] == expected[i][I0]);
         static_assert(idx_curr[I1] == expected[i][I1]);
