@@ -1,0 +1,20 @@
+# from Dan Yao
+
+Workgroup i(1~4)
+Load 𝑑𝑂_𝑖(128, 64) 𝑂_𝑖(128, 64) 𝑝_𝑙𝑠𝑒_𝑖(128) from HBM to VGPR
+Compute 𝐷_𝑖(128) = rowsum(𝑑𝑂_𝑖◦𝑂_𝑖)//pointwise
+Write 𝑑𝑂_𝑖(128, 64) to SRAM
+For 1≤j≤4 do:
+    Compute 𝑑𝑃_𝑖𝑗(128, 128)=𝑑𝑂_𝑖 𝑉_𝑗^𝑇 //same as fwd
+    Compute (𝑑𝑃_𝑖𝑗  - 𝐷_𝑖)(128, 128)//pointwise
+    Compute 𝑆_𝑖𝑗(128, 128)=𝑄_𝑖 𝐾_𝑗^𝑇 // same as fwd, layout same as 𝑑𝑃_𝑖𝑗
+    Compute 𝑆_𝑖𝑗^𝑚𝑎𝑠𝑘𝑒𝑑(128, 128)=MASK(𝑆_𝑖𝑗)//pointwise
+    Compute 𝑃_𝑖𝑗(128, 128)=𝑠𝑜𝑓𝑡𝑚𝑎𝑥(𝑆_𝑖𝑗^𝑚𝑎𝑠𝑘𝑒𝑑)// pointwise based on 𝑝_𝑙𝑠𝑒_𝑖
+    Compute 𝑑𝑆_𝑖𝑗=𝑃_𝑖𝑗◦(𝑑𝑃_𝑖𝑗 − 𝐷_𝑖)
+    Compute 𝑑𝑄_𝑖(128, 64)=𝑑𝑆_𝑖𝑗 𝐾_𝑗//accumulation in VGPR
+    Compute 𝑑𝑉_𝑗(128, 64)=𝑃_𝑖𝑗^𝑇 𝑑𝑂_𝑖//transpose 𝑃_𝑖𝑗 in SRAM
+    Shuffle 𝑑𝑉_𝑗   and write to HBM//atomicadd
+    Compute 𝑑𝐾_𝑗(128, 64)=𝑑𝑆_𝑖𝑗^𝑇 𝑄_𝑖// transpose 𝑑𝑆_𝑖𝑗  in SRAM
+    Shuffle 𝑑𝐾_𝑗 and write to HBM//atomicadd
+end for
+Shuffle 𝑑𝑄_𝑖  and write to HBM
