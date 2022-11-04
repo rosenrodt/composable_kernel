@@ -1,20 +1,23 @@
-# from Dan Yao
+# revised from notes by Dan Yao
+
+# regex search ex: \bdV(\b|(_\w*))
 
 Workgroup i(1~4)
-Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) from HBM to VGPR // dO(16KB), O(16KB)
-Compute D_m(128) = rowsum(dO_m_o .* O_m_o)                          // dO(16KB)
-Write dO_m_o(128, 64) to SRAM
+Zero init dQ_m_k(128, 64)                          // dQ(32VGPR)
+Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) // dQ(32VGPR), dO(16KB), O(16KB)
+Compute D_m(128) = rowsum(dO_m_o .* O_m_o)         // dQ(32VGPR), dO(16KB), O(16KB)
+Write dO_m_o(128, 64) to SRAM                      // dQ(32VGPR), dO(16KB)
 For j=1:4 do:
-    Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dO(16KB), V(16KB) same as fwd
-    Compute (dP_m_n - D_m)(128, 128)               // dO(16KB), V(16KB) pointwise
-    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dO(16KB), Q(16KB), K(16KB) same as fwd, layout same as dP_m_n
-    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dO(16KB), Q(16KB), K(16KB) pointwise
-    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dO(16KB), Q(16KB), K(16KB) pointwise based on p_lse_m
-    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dO(16KB), Q(16KB), K(16KB)
-    Compute dQ_m_k(128, 64) = dS_m_n * K_n_k       // dO(16KB), Q(16KB), K(16KB) accumulation in VGPR
-    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dO(16KB), Q(16KB), P^T(32KB) transpose P_m_n in SRAM
-    Shuffle dV_n_o and write to HBM                // dO(16KB), Q(16KB), dV(16KB) atomicadd
-    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dO(16KB), Q(16KB), dS^T(32KB) transpose dS_m_n in SRAM
-    Shuffle dK_n_k and write to HBM                // dO(16KB), Q(16KB), dK(16KB) atomicadd
+    Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
+    Compute (dP_m_n - D_m)(128, 128)               // dQ(32VGPR), dO(16KB), dP(64VGPR)
+    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K(16KB)
+    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K(16KB)
+    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dO(16KB), dP(64VGPR), S/P(64VGPR), Q(16KB), K(16KB)
+    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dO(16KB), dP/dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
+    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dO(16KB), dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
+    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(32VGPR), P^T(32KB)
+    Shuffle dV_n_o and write to HBM                // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(16KB)
+    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dS^T(32KB)
+    Shuffle dK_n_k and write to HBM                // dQ(32VGPR), dO(16KB), dK(16KB)
 end for
 Shuffle dQ_m_k and write to HBM                    // dQ(16KB)
