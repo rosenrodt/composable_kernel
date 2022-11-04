@@ -8,16 +8,42 @@ Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) // dQ(32VGPR), dO(16KB), O(16
 Compute D_m(128) = rowsum(dO_m_o .* O_m_o)         // dQ(32VGPR), dO(16KB), O(16KB)
 Write dO_m_o(128, 64) to SRAM                      // dQ(32VGPR), dO(16KB)
 For j=1:4 do:
+    Load V_n_o(128, 64)                            // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
     Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
     Compute (dP_m_n - D_m)(128, 128)               // dQ(32VGPR), dO(16KB), dP(64VGPR)
-    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K(16KB)
-    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K(16KB)
-    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dO(16KB), dP(64VGPR), S/P(64VGPR), Q(16KB), K(16KB)
-    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dO(16KB), dP/dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
+    Load Q_m_k(128, 64)                            // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB)
+    Load K_n_k^T(64, 128)                          // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
+    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
+    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
+    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dO(16KB), dP(64VGPR), S/P(64VGPR), Q(16KB), K^T(16KB)
+    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dO(16KB), dP/dS(64VGPR), P(64VGPR), Q(16KB), K^T(16KB)
+    Shuffle K^T in SRAM to K in SRAM               // dQ(32VGPR), dO(16KB), dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
     Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dO(16KB), dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
+    Shuffle P in VGPR to P^T in SRAM               // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(32VGPR), P^T(32KB)
     Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(32VGPR), P^T(32KB)
     Shuffle dV_n_o and write to HBM                // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(16KB)
-    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dS^T(32KB)
+    Shuffle dS in VGPR to dS^T in SRAM             // dQ(32VGPR), dO(16KB), Q(16KB), dS^T(32KB)
+    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dO(16KB), Q(16KB), dS^T(32KB)
     Shuffle dK_n_k and write to HBM                // dQ(32VGPR), dO(16KB), dK(16KB)
 end for
 Shuffle dQ_m_k and write to HBM                    // dQ(16KB)
+
+dV0(0:63, 64)   = P^T(0:63, 128)   * dO_m_o(128, 64)
+dV1(64:127, 64) = P^T(64:127, 128) * dO_m_o(128, 64)
+
+K^T -> LDS(K0_N_K1)
+K   -> LDS(N0_K0K1_N1)
+
+Action items
+- attention forward: store max/sum (or max+sum) for backward kernel (Dan Yao)
+- attention backward: host verification (Anthony)
+- attention backward (need further breakdown)
+- random generator for dropout mask used by both forward and backward (TBD)
+- (optional) bias addition (TBD)
+
+Note: will start with batched attention permute, grouped version later version
+
+Implementation detail
+- Might reload Q, K, dO for higher occupancy or supporting head_dim=128
+- Expose minimal amount of tuning parameters (MNKPerBlock, precision)
+- Naming convention will not follow GEMM abstractions; use QKV to avoid confusion
