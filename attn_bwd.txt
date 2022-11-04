@@ -4,25 +4,27 @@
 
 Workgroup i(1~4)
 Zero init dQ_m_k(128, 64)                          // dQ(32VGPR)
-Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) // dQ(32VGPR), dO(16KB), O(16KB)
+Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128)
 Compute D_m(128) = rowsum(dO_m_o .* O_m_o)         // dQ(32VGPR), dO(16KB), O(16KB)
 Write dO_m_o(128, 64) to SRAM                      // dQ(32VGPR), dO(16KB)
 For j=1:4 do:
-    Load V_n_o(128, 64)                            // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
+    Load V_n_o(128, 64)
     Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
-    Compute (dP_m_n - D_m)(128, 128)               // dQ(32VGPR), dO(16KB), dP(64VGPR)
-    Load Q_m_k(128, 64)                            // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB)
-    Load K_n_k^T(64, 128)                          // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
-    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
-    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dO(16KB), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
-    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dO(16KB), dP(64VGPR), S/P(64VGPR), Q(16KB), K^T(16KB)
-    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dO(16KB), dP/dS(64VGPR), P(64VGPR), Q(16KB), K^T(16KB)
-    Shuffle K^T in SRAM to K in SRAM               // dQ(32VGPR), dO(16KB), dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
-    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dO(16KB), dS(64VGPR), P(64VGPR), Q(16KB), K(16KB)
-    Shuffle P in VGPR to P^T in SRAM               // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(32VGPR), P^T(32KB)
-    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(32VGPR), P^T(32KB)
-    Shuffle dV_n_o and write to HBM                // dQ(32VGPR), dO(16KB), dS(64VGPR), Q(16KB), dV(16KB)
-    Shuffle dS in VGPR to dS^T in SRAM             // dQ(32VGPR), dO(16KB), Q(16KB), dS^T(32KB)
+    Compute (dP_m_n - D_m)(128, 128)               // dQ(32VGPR), dP(64VGPR)
+    Load Q_m_k(128, 64)
+    Load K_n_k^T(64, 128)
+    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
+    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dP(64VGPR), S(64VGPR)
+    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dP(64VGPR), S/P(64VGPR)
+    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dP/dS(64VGPR), P(64VGPR)
+    Reload K_n_k(128, 64)
+    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dS(64VGPR), P(64VGPR), K(16KB)
+    Shuffle P in VGPR to P^T in SRAM               // dQ(32VGPR), dS(64VGPR), dV(32VGPR), P^T(32KB)
+    Reload dO_m_o(128, 64)
+    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), dO(16KB), dS(64VGPR), dV(32VGPR), P^T(32KB)
+    Shuffle dV_n_o and write to HBM                // dQ(32VGPR), dO(16KB), dS(64VGPR), dV(16KB)
+    Shuffle dS in VGPR to dS^T in SRAM             // dQ(32VGPR), dO(16KB), dS^T(32KB)
+    Reload Q_m_k(128, 64)
     Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dO(16KB), Q(16KB), dS^T(32KB)
     Shuffle dK_n_k and write to HBM                // dQ(32VGPR), dO(16KB), dK(16KB)
 end for
@@ -45,5 +47,8 @@ Note: will start with batched attention permute, grouped version later version
 
 Implementation detail
 - Might reload Q, K, dO for higher occupancy or supporting head_dim=128
+   - Monolithic block is hard to scale up as VGPR/LDS size is limited
 - Expose minimal amount of tuning parameters (MNKPerBlock, precision)
 - Naming convention will not follow GEMM abstractions; use QKV to avoid confusion
+
+Degree of freedom, Q_headdim == K_headdim == V_headdim?
