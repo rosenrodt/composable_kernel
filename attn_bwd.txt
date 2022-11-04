@@ -1,20 +1,20 @@
 # from Dan Yao
 
 Workgroup i(1~4)
-Load 𝑑𝑂_𝑖(128, 64) 𝑂_𝑖(128, 64) 𝑝_𝑙𝑠𝑒_𝑖(128) from HBM to VGPR
-Compute 𝐷_𝑖(128) = rowsum(𝑑𝑂_𝑖◦𝑂_𝑖)//pointwise
-Write 𝑑𝑂_𝑖(128, 64) to SRAM
-For 1≤j≤4 do:
-    Compute 𝑑𝑃_𝑖𝑗(128, 128)=𝑑𝑂_𝑖 𝑉_𝑗^𝑇 //same as fwd
-    Compute (𝑑𝑃_𝑖𝑗  - 𝐷_𝑖)(128, 128)//pointwise
-    Compute 𝑆_𝑖𝑗(128, 128)=𝑄_𝑖 𝐾_𝑗^𝑇 // same as fwd, layout same as 𝑑𝑃_𝑖𝑗
-    Compute 𝑆_𝑖𝑗^𝑚𝑎𝑠𝑘𝑒𝑑(128, 128)=MASK(𝑆_𝑖𝑗)//pointwise
-    Compute 𝑃_𝑖𝑗(128, 128)=𝑠𝑜𝑓𝑡𝑚𝑎𝑥(𝑆_𝑖𝑗^𝑚𝑎𝑠𝑘𝑒𝑑)// pointwise based on 𝑝_𝑙𝑠𝑒_𝑖
-    Compute 𝑑𝑆_𝑖𝑗=𝑃_𝑖𝑗◦(𝑑𝑃_𝑖𝑗 − 𝐷_𝑖)
-    Compute 𝑑𝑄_𝑖(128, 64)=𝑑𝑆_𝑖𝑗 𝐾_𝑗//accumulation in VGPR
-    Compute 𝑑𝑉_𝑗(128, 64)=𝑃_𝑖𝑗^𝑇 𝑑𝑂_𝑖//transpose 𝑃_𝑖𝑗 in SRAM
-    Shuffle 𝑑𝑉_𝑗   and write to HBM//atomicadd
-    Compute 𝑑𝐾_𝑗(128, 64)=𝑑𝑆_𝑖𝑗^𝑇 𝑄_𝑖// transpose 𝑑𝑆_𝑖𝑗  in SRAM
-    Shuffle 𝑑𝐾_𝑗 and write to HBM//atomicadd
+Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) from HBM to VGPR // dO(16KB), O(16KB)
+Compute D_m(128) = rowsum(dO_m_o .* O_m_o)                          // dO(16KB)
+Write dO_m_o(128, 64) to SRAM
+For j=1:4 do:
+    Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dO(16KB), V(16KB) same as fwd
+    Compute (dP_m_n - D_m)(128, 128)               // dO(16KB), V(16KB) pointwise
+    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dO(16KB), Q(16KB), K(16KB) same as fwd, layout same as dP_m_n
+    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dO(16KB), Q(16KB), K(16KB) pointwise
+    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dO(16KB), Q(16KB), K(16KB) pointwise based on p_lse_m
+    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dO(16KB), Q(16KB), K(16KB)
+    Compute dQ_m_k(128, 64) = dS_m_n * K_n_k       // dO(16KB), Q(16KB), K(16KB) accumulation in VGPR
+    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dO(16KB), Q(16KB), P^T(32KB) transpose P_m_n in SRAM
+    Shuffle dV_n_o and write to HBM                // dO(16KB), Q(16KB), dV(16KB) atomicadd
+    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dO(16KB), Q(16KB), dS^T(32KB) transpose dS_m_n in SRAM
+    Shuffle dK_n_k and write to HBM                // dO(16KB), Q(16KB), dK(16KB) atomicadd
 end for
-Shuffle 𝑑𝑄_𝑖  and write to HBM
+Shuffle dQ_m_k and write to HBM                    // dQ(16KB)
