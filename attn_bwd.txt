@@ -4,29 +4,33 @@
 
 Workgroup i(1~4)
 Zero init dQ_m_k(128, 64)                          // dQ(32VGPR)
-Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128)
-Compute D_m(128) = rowsum(dO_m_o .* O_m_o)         // dQ(32VGPR), dO(16KB), O(16KB)
-Write dO_m_o(128, 64) to SRAM                      // dQ(32VGPR), dO(16KB)
+Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) // dQ(32VGPR), dO(32VGPR), O(32VGPR)
+Compute D_m(128) = rowsum(dO_m_o .* O_m_o)
 For j=1:4 do:
-    Load V_n_o(128, 64)
-    Compute dP_m_n(128, 128) = dO_m_o * V_n_o^T    // dQ(32VGPR), dO(16KB), dP(64VGPR), V(16KB)
-    Compute (dP_m_n - D_m)(128, 128)               // dQ(32VGPR), dP(64VGPR)
-    Load Q_m_k(128, 64)
-    Load K_n_k^T(64, 128)
-    Compute S_m_n(128, 128) = Q_m_k * K_n_k^T      // dQ(32VGPR), dP(64VGPR), S(64VGPR), Q(16KB), K^T(16KB)
-    Compute Smasked_m_n(128, 128) = MASK(S_m_n)    // dQ(32VGPR), dP(64VGPR), S(64VGPR)
-    Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n) // dQ(32VGPR), dP(64VGPR), S/P(64VGPR)
-    Compute dS_m_n = P_m_n .* (dP_m_n - D_m)       // dQ(32VGPR), dP/dS(64VGPR), P(64VGPR)
-    Reload K_n_k(128, 64)
-    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dS(64VGPR), P(64VGPR), K(16KB)
-    Shuffle P in VGPR to P^T in SRAM               // dQ(32VGPR), dS(64VGPR), dV(32VGPR), P^T(32KB)
-    Reload dO_m_o(128, 64)
-    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), dO(16KB), dS(64VGPR), dV(32VGPR), P^T(32KB)
-    Shuffle dV_n_o and write to HBM                // dQ(32VGPR), dO(16KB), dS(64VGPR), dV(16KB)
-    Shuffle dS in VGPR to dS^T in SRAM             // dQ(32VGPR), dO(16KB), dS^T(32KB)
-    Reload Q_m_k(128, 64)
-    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dO(16KB), Q(16KB), dS^T(32KB)
-    Shuffle dK_n_k and write to HBM                // dQ(32VGPR), dO(16KB), dK(16KB)
+  For S GEMM loop do:
+    Load Q_m_k(128, Gemm0KPerBlock)                // 8KB if Gemm0KPerBlock=32
+    Load K_n_k^T(Gemm0KPerBlock, 128)              // 8KB if Gemm0KPerBlock=32
+    Compute S_m_n(128, 128) += Q_m_k * K_n_k^T     // dQ(32VGPR), S(64VGPR), Q(8KB), K^T(8KB)
+  Compute Smasked_m_n(128, 128) = MASK(S_m_n)      // dQ(32VGPR), S(64VGPR)
+  Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n)   // dQ(32VGPR), P(64VGPR)
+  For dV GEMM loop do:
+    Reload dO_m_o(VGradKPerBlock, 64)              // 8KB if VGradKPerBlock=64
+    Shuffle P in VGPR to P^T in SRAM               // 16KB if VGradKPerBlock=64
+    Compute dV_n_o(128, 64) = P_m_n^T * dO_m_o     // dQ(32VGPR), P(64VGPR), dV(32VGPR), dO(8KB), P^T(16KB)
+  Shuffle dV_n_o and accum to HBM                  // dQ(32VGPR), P(64VGPR), dV(16KB)
+  For dP GEMM loop do:
+    Load dO_m_o(128, PGradKPerBlock) to SRAM       // 8KB if PGradKPerBlock=32
+    Load V_n_o(128, PGradKPerBlock) to SRAM        // 8KB if PGradKPerBlock=32
+    Compute dP_m_n(128, 128) += dO_m_o * V_n_o^T   // dQ(32VGPR), P(64VGPR), dP(64VGPR), dO(8KB), V(8KB)
+  Compute dS_m_n = P_m_n .* (dP_m_n - D_m)         // dQ(32VGPR), dS(64VGPR)
+  For dQ GEMM loop do:
+    Reload K_n_k(QGradKPerBlock, 64)               // 8KB if QGradKPerBlock=64
+    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dS(64VGPR), K(8KB)
+  For dK GEMM loop do:
+    Reload Q_m_k(KGradKPerBlock, 64)               // 8KB if KGradKPerBlock=64
+    Shuffle dS in VGPR to dS^T in SRAM             // 16KB if KGradKPerBlock=64
+    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dS(64VGPR), Q(8KB), dS^T(16KB)
+  Shuffle dK_n_k and accum to HBM                  // dQ(32VGPR), dK(16KB)
 end for
 Shuffle dQ_m_k and write to HBM                    // dQ(16KB)
 
