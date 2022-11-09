@@ -43,8 +43,13 @@ K   -> LDS(N0_K0K1_N1)
 Action items
 - attention forward: store max/sum (or max+sum) for backward kernel (Dan Yao)
 - attention backward: host verification (Anthony)
-- attention backward (need further breakdown)
+- attention backward
+  - no-reload prototype (Dan Yao)
+  - can-reload prototype (Anthony)
 - random generator for dropout mask used by both forward and backward (TBD)
+  - unit test
+  - integrate with forward
+  - integrate with backward
 - (optional) bias addition (TBD)
 
 Note: will start with batched attention permute, grouped version later version
