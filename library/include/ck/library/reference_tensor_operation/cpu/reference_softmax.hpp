@@ -123,7 +123,72 @@ struct ReferenceSoftmax : public device::BaseOperator
 
             return 0;
         }
+#if 0
+        float RunWithPreCalcStats(const Argument& arg, float* stats /* = max + ln(sum) */)
+        {
+            std::vector<size_t> scalar_lengths;
+            for(index_t dim : arg.sm_scalar_dims_)
+            {
+                scalar_lengths.push_back(arg.in_.mDesc.GetLengths()[dim]);
+            }
+            // max and sum reduction with final reduced values of dim=0 is a scalar so give it
+            // appropriate lengths of {1}
+            if(arg.sm_scalar_dims_.size() == 0)
+            {
+                scalar_lengths.push_back(1);
+            }
 
+            // when final reduced values is of dim=0, the index will be transformed into empty
+            // std::vector which is actually a valid input for Tensor::operator(std::vector) and
+            // internally accesses 0'th element
+            auto to_sm_scalar_idx = [&](auto idx) {
+                std::vector<size_t> sm_scalar_idx;
+                for(index_t dim : arg.sm_scalar_dims_)
+                {
+                    sm_scalar_idx.push_back(idx[dim]);
+                }
+                return sm_scalar_idx;
+            };
+
+            arg.in_.ForEach([&](auto& self, auto idx) {
+                reduce_max(to_sm_scalar_idx(idx)) = std::max(reduce_max(to_sm_scalar_idx(idx)),
+                                                             static_cast<AccDataType>(self(idx)));
+            });
+
+            // LogRangeAsType<float>(std::cout << "reduce_max: ", reduce_max.mData, ",") <<
+            // std::endl;
+
+            Tensor<AccDataType> in_stable(arg.in_.mDesc);
+            in_stable.ForEach([&](auto& self, auto idx) {
+                // numerator = exp(x - max(x))
+                self(idx) = std::exp(static_cast<AccDataType>(arg.in_(idx)) -
+                                     reduce_max(to_sm_scalar_idx(idx)));
+            });
+
+            // LogRangeAsType<float>(std::cout << "in_stable: ", in_stable.mData, ",") << std::endl;
+
+            in_stable.ForEach([&](auto& self, auto idx) {
+                // denominator = sum(exp(x - max(x)))
+                reduce_sum(to_sm_scalar_idx(idx)) += self(idx);
+            });
+
+            // LogRangeAsType<float>(std::cout << "reduce_sum: ", reduce_sum.mData, ",") <<
+            // std::endl;
+
+            arg.out_.ForEach([&](auto& self, auto idx) {
+                self(idx) = arg.alpha_ * in_stable(idx) / reduce_sum(to_sm_scalar_idx(idx)) +
+                            arg.beta_ * self(idx);
+            });
+
+            // LogRangeAsType<float>(std::cout << "out: ", arg.out_.mData, ",") << std::endl;
+            // reduction along reduce dims
+            // LogRangeAsType<float>(std::cout << "reduce_max: ", reduce_max.mData, ",") <<
+            // std::endl; LogRangeAsType<float>(std::cout << "reduce_sum: ", reduce_sum.mData, ",")
+            // << std::endl;
+
+            return 0;
+        }
+#endif
         float Run(const device::BaseArgument* p_arg,
                   const StreamConfig& /* stream_config */ = StreamConfig{}) override
         {
