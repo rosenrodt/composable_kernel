@@ -140,6 +140,11 @@ struct HostTensorDescriptor
     std::vector<std::size_t> mStrides;
 };
 
+std::vector<size_t> CalculateStrides(std::vector<size_t> lens);
+std::size_t GetElementSize(std::vector<std::size_t> lens, std::vector<std::size_t> strides = {});
+std::size_t GetElementSpaceSize(std::vector<std::size_t> lens,
+                                std::vector<std::size_t> strides = {});
+
 template <typename New2Old>
 HostTensorDescriptor transpose_host_tensor_descriptor_given_new2old(const HostTensorDescriptor& a,
                                                                     const New2Old& new2old)
@@ -234,36 +239,61 @@ auto make_ParallelTensorFunctor(F f, Xs... xs)
 }
 
 template <typename T>
-struct Tensor
+struct TensorStorage
 {
+    using Data = std::vector<T>;
+    TensorStorage(int storage_size = 0) : mData(storage_size) {}
+    typename Data::pointer data() { return mData.data(); }
+    bool IsInit() const { return mData.size() > 0; }
+
+    private:
+    std::vector<T> mData;
+};
+
+template <typename T>
+struct Tensor : private TensorStorage<T>
+{
+    using Storage    = TensorStorage<T>;
     using Descriptor = HostTensorDescriptor;
-    using Data       = std::vector<T>;
+    using DataSpan   = ck::span<T>;
+    using Data       = typename Storage::Data;
 
     template <typename X>
-    Tensor(std::initializer_list<X> lens) : mDesc(lens), mData(mDesc.GetElementSpaceSize())
+    Tensor(std::initializer_list<X> lens)
+        : Storage(::GetElementSpaceSize(std::vector<size_t>(lens.begin(), lens.end()))),
+          mDesc(lens),
+          mSpan(AsSpan())
     {
     }
 
     template <typename X>
-    Tensor(std::vector<X> lens) : mDesc(lens), mData(mDesc.GetElementSpaceSize())
+    Tensor(std::vector<X> lens) : Storage(::GetElementSpaceSize(lens)), mDesc(lens), mSpan(AsSpan())
     {
     }
 
     template <typename X, typename Y>
     Tensor(std::vector<X> lens, std::vector<Y> strides)
-        : mDesc(lens, strides), mData(mDesc.GetElementSpaceSize())
+        : Storage(::GetElementSpaceSize(lens)), mDesc(lens, strides), mSpan(AsSpan())
     {
     }
 
-    Tensor(const Descriptor& desc) : mDesc(desc), mData(mDesc.GetElementSpaceSize()) {}
+    Tensor(const Descriptor& desc)
+        : Storage(::GetElementSpaceSize(desc.GetLengths(), desc.GetStrides())),
+          mDesc(desc),
+          mSpan(AsSpan())
+    {
+    }
+
+    // no storage used
+    Tensor(const Descriptor& desc, const DataSpan& span) : mDesc(desc), mSpan(span) {}
 
     template <typename OutT>
     Tensor<OutT> CopyAsType() const
     {
         Tensor<OutT> ret(mDesc);
-        for(size_t i = 0; i < mData.size(); i++)
+        for(size_t i = 0; i < mSpan.size(); i++)
         {
-            ret.mData[i] = ck::type_convert<OutT>(mData[i]);
+            ret.mSpan[i] = ck::type_convert<OutT>(mSpan[i]);
         }
         return ret;
     }
@@ -296,7 +326,7 @@ struct Tensor
 
     void SetZero()
     {
-        for(auto& v : mData)
+        for(auto& v : mSpan)
         {
             v = T{0};
         }
@@ -412,38 +442,64 @@ struct Tensor
     template <typename... Is>
     T& operator()(Is... is)
     {
-        return mData[mDesc.GetOffsetFromMultiIndex(is...)];
+        return mSpan[mDesc.GetOffsetFromMultiIndex(is...)];
     }
 
     template <typename... Is>
     const T& operator()(Is... is) const
     {
-        return mData[mDesc.GetOffsetFromMultiIndex(is...)];
+        return mSpan[mDesc.GetOffsetFromMultiIndex(is...)];
     }
 
     T& operator()(std::vector<std::size_t> idx)
     {
-        return mData[mDesc.GetOffsetFromMultiIndex(idx)];
+        return mSpan[mDesc.GetOffsetFromMultiIndex(idx)];
     }
 
     const T& operator()(std::vector<std::size_t> idx) const
     {
-        return mData[mDesc.GetOffsetFromMultiIndex(idx)];
+        return mSpan[mDesc.GetOffsetFromMultiIndex(idx)];
     }
 
-    typename Data::iterator begin() { return mData.begin(); }
+    // Will return a view-like Tensor object without actual storage initialized
+    Tensor<T> Transpose(std::vector<size_t> axes = {})
+    {
+        if(axes.empty())
+        {
+            axes.resize(this->GetNumOfDimension());
+            std::iota(axes.rbegin(), axes.rend(), 0);
+        }
+        if(axes.size() != mDesc.GetNumOfDimension())
+        {
+            throw std::runtime_error(
+                "Tensor::Transpose(): size of axes must match tensor dimension");
+        }
+        std::vector<size_t> tlengths, tstrides;
+        for(const auto& axis : axes)
+        {
+            tlengths.push_back(GetLengths()[axis]);
+            tstrides.push_back(GetStrides()[axis]);
+        }
+        // if storage is initialized, then make a span object
+        // if storage is not initialized, meaning this object is just a view, then simply return
+        // existing span object
+        return Tensor<T>(HostTensorDescriptor(tlengths, tstrides),
+                         Storage::IsInit() ? AsSpan() : mSpan);
+    }
 
-    typename Data::iterator end() { return mData.end(); }
+    typename Data::iterator begin() { return mSpan.begin(); }
 
-    typename Data::pointer data() { return mData.data(); }
+    typename Data::iterator end() { return mSpan.end(); }
 
-    typename Data::const_iterator begin() const { return mData.begin(); }
+    typename Data::pointer data() { return Storage::data(); }
 
-    typename Data::const_iterator end() const { return mData.end(); }
+    typename Data::const_iterator begin() const { return mSpan.begin(); }
 
-    typename Data::const_pointer data() const { return mData.data(); }
+    typename Data::const_iterator end() const { return mSpan.end(); }
 
-    typename Data::size_type size() const { return mData.size(); }
+    typename Data::const_pointer data() const { return mSpan.data(); }
+
+    typename Data::size_type size() const { return mSpan.size(); }
 
     template <typename U = T>
     auto AsSpan() const
@@ -466,5 +522,5 @@ struct Tensor
     }
 
     Descriptor mDesc;
-    Data mData;
+    DataSpan mSpan;
 };
