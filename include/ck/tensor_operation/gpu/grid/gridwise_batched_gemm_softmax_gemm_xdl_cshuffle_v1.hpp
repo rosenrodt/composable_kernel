@@ -391,6 +391,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         // B matrix in LDS memory, dst of blockwise copy
         constexpr auto b_block_desc_bk0_n_bk1 = GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
+#if 0
         //
         // set up Gemm0
         //
@@ -1112,6 +1113,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 }
             });
         }
+#endif
     }
 };
 

@@ -226,6 +226,15 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
     static constexpr auto I1 = Number<1>{};
     static constexpr auto I2 = Number<2>{};
 
+    static constexpr index_t Q_K1 = 8;
+    static constexpr index_t K_K1 = 8;
+    static constexpr index_t V_N1 = 2;
+
+    static constexpr index_t Q_M1 = 2;
+    static constexpr index_t K_N1 = 2;
+    static constexpr index_t V_O1 = 8;
+    static constexpr index_t Y_O1 = 8;
+
     using Transform = TransformBatchedContractionContractionToBatchedGemmGemm<
         Sequence<NumDimG, NumDimM, NumDimN, NumDimK, NumDimO>,
         Sequence<MPerBlock, NPerBlock, KPerBlock, Gemm1NPerBlock>,
@@ -235,31 +244,119 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         B1Spec,
         CSpec>;
 
-    static auto MakeAGridDescriptor_AK0_M_AK1(const std::vector<index_t>& a_gs_ms_ks_lengths_vec,
-                                              const std::vector<index_t>& a_gs_ms_ks_strides_vec)
+    /*
+    Descriptors for inputs:
+
+      Q, K, V, Y, dY, per-row softmax stats
+
+    Descriptors for outputs:
+
+      dQ, dK, dV
+
+    */
+
+    // Q in Gemm A position
+    static auto MakeQGridDescriptor_K0_M_K1(const std::vector<index_t>& q_gs_ms_ks_lengths_vec,
+                                            const std::vector<index_t>& q_gs_ms_ks_strides_vec)
     {
         return Transform::MakeAGridDescriptor_AK0_M_AK1(
-            Transform::MakeAGridDescriptor_M_K(a_gs_ms_ks_lengths_vec, a_gs_ms_ks_strides_vec),
-            Number<AK1>{});
+            Transform::MakeAGridDescriptor_M_K(q_gs_ms_ks_lengths_vec, q_gs_ms_ks_strides_vec),
+            Number<Q_K1>{});
     }
 
-    static auto MakeBGridDescriptor_BK0_N_BK1(const std::vector<index_t>& b_gs_ns_ks_lengths_vec,
-                                              const std::vector<index_t>& b_gs_ns_ks_strides_vec)
+    // K in Gemm B0 position
+    static auto MakeKGridDescriptor_K0_N_K1(const std::vector<index_t>& k_gs_ns_ks_lengths_vec,
+                                            const std::vector<index_t>& k_gs_ns_ks_strides_vec)
     {
         return Transform::MakeB0GridDescriptor_BK0_N_BK1(
-            Transform::MakeB0GridDescriptor_N_K(b_gs_ns_ks_lengths_vec, b_gs_ns_ks_strides_vec),
-            Number<BK1>{});
+            Transform::MakeB0GridDescriptor_N_K(k_gs_ns_ks_lengths_vec, b_gs_ns_ks_strides_vec),
+            Number<K_K1>{});
     }
 
-    static auto
-    MakeB1GridDescriptor_BK0_N_BK1(const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_lengths_vec,
-                                   const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides_vec)
+    // V in Gemm B1 position
+    static auto MakeVGridDescriptor_N0_O_N1(const std::vector<index_t>& v_gs_os_ns_lengths_vec,
+                                            const std::vector<index_t>& v_gs_os_ns_strides_vec)
     {
         return Transform::MakeB1GridDescriptor_BK0_N_BK1(
-            Transform::MakeB1GridDescriptor_N_K(b1_gs_gemm1ns_gemm1ks_lengths_vec,
-                                                b1_gs_gemm1ns_gemm1ks_strides_vec),
-            Number<B1K1>{});
+            Transform::MakeB1GridDescriptor_N_K(v_gs_os_ns_lengths_vec, v_gs_os_ns_strides_vec),
+            Number<V_N1>{});
     }
+
+    //
+    // dV = P^T * dY
+    //
+
+    // VGrad in Gemm C position
+    static auto MakeVGradGridDescriptor_N_O(const std::vector<index_t>& v_gs_os_ns_lengths_vec,
+                                            const std::vector<index_t>& v_gs_os_ns_strides_vec)
+    {
+        // v_gs_os_ns -> vgrad_gs_ns_os. O dims last because output is row-major.
+        // Here directly rearrange lengths/strides before constructing tensor descriptor to reduce
+        // transformation overhead
+        const index_t num_dims = NumDimG + NumDimN + NumDimO;
+
+        // 0, 1, .. NumDimG - 1
+        std::vector<index_t> gs_ids(NumDimG);
+        std::iota(gs_ids.begin(), gs_ids.end(), 0);
+
+        // NumDimG, NumDimG + 1, ... NumDimG + NumDimO - 1
+        std::vector<index_t> os_ids(NumDimO);
+        std::iota(os_ids.begin(), os_ids.end(), NumDimG);
+
+        // NumDimG + NumDimO, NumDimG + NumDimO + 1, ... NumDimG + NumDimO + NumDimN - 1
+        std::vector<index_t> ns_ids(NumDimN);
+        std::iota(ns_ids.begin(), ns_ids.end(), NumDimG + NumDimO);
+
+        std::vector<index_t> ids_old2new;
+        ids_old2new.insert(ids_old2new.end(), gs_ids.begin(), gs_ids.end();
+        ids_old2new.insert(ids_old2new.end(), ns_ids.begin(), ns_ids.end();
+        ids_old2new.insert(ids_old2new.end(), os_ids.begin(), os_ids.end();
+
+        std::vector<index_t> v_gs_ns_os_lengths_vec(num_dims), v_gs_ns_os_strides_vec(num_dims);
+        for (int i = 0; i < num_dims; i++)
+        {
+            index_t id_new = ids_old2new[i];
+            v_gs_ns_os_lengths_vec[i] = v_gs_os_ns_lengths_vec[id_new];
+            v_gs_ns_os_strides_vec[i] = v_gs_os_ns_strides_vec[id_new];
+        }
+        return Transform::MakeCGridDescriptor_M_N(v_gs_os_ns_lengths_vec, v_gs_os_ns_strides_vec);
+    }
+
+    //
+    // dP = dY * V^T
+    //
+
+    // YGrad in Gemm A position
+    static auto MakeYGradGridDescriptor_O0_M_O1(const std::vector<index_t>& y_gs_ms_os_lengths_vec,
+                                                const std::vector<index_t>& y_gs_ms_os_strides_vec)
+    {
+        return Transform::MakeAGridDescriptor_AK0_M_AK1(
+            Transform::MakeAGridDescriptor_M_K(y_gs_ms_os_lengths_vec, y_gs_ms_os_strides_vec),
+            Number<Y_O1>{});
+    }
+
+    //
+    // dQ = alpha * dS * K
+    //
+
+    // QGrad in Gemm C position
+    static auto MakeQGradGridDescriptor_M_K(const std::vector<index_t>& q_gs_ms_ks_lengths_vec,
+                                            const std::vector<index_t>& q_gs_ms_ks_strides_vec)
+    {
+        return Transform::MakeCGridDescriptor_M_N(q_gs_ms_ks_lengths_vec, q_gs_ms_ks_strides_vec);
+    }
+
+    //
+    // dK = alpha * dS^T * Q
+    //
+
+    // KGrad in Gemm C position
+    static auto MakeQGradGridDescriptor_N_K(const std::vector<index_t>& k_gs_ns_ks_lengths_vec,
+                                            const std::vector<index_t>& k_gs_ns_ks_strides_vec)
+    {
+        return Transform::MakeCGridDescriptor_M_N(k_gs_ns_ks_lengths_vec, k_gs_ns_ks_strides_vec);
+    }
+
 
     using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1({}, {}));
     using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1({}, {}));
@@ -390,156 +487,11 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
     // FIXME: constness
     struct Argument : public BaseArgument
     {
-        Argument(
-            const ADataType* p_a_grid,
-            const BDataType* p_b_grid,
-            const B1DataType* p_b1_grid,
-            CDataType* p_c_grid,
-            const std::array<void*, NumAcc0Bias> p_acc0_biases,
-            const std::array<void*, NumAcc1Bias> p_acc1_biases,
-            const std::vector<index_t>& a_gs_ms_ks_lengths,
-            const std::vector<index_t>& a_gs_ms_ks_strides,
-            const std::vector<index_t>& b_gs_ns_ks_lengths,
-            const std::vector<index_t>& b_gs_ns_ks_strides,
-            const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_lengths, // b1_gs_os_ns_lengths
-            const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
-            const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
-            const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
-            const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_lengths,
-            const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_strides,
-            const std::array<std::vector<ck::index_t>, NumAcc1Bias>
-                acc1_biases_gs_ms_gemm1ns_lengths, // acc1_biases_gs_ms_os_lengths
-            const std::array<std::vector<ck::index_t>, NumAcc1Bias>
-                acc1_biases_gs_ms_gemm1ns_strides, // acc1_biases_gs_ms_os_strides
-            AElementwiseOperation a_element_op,
-            BElementwiseOperation b_element_op,
-            AccElementwiseOperation acc_element_op,
-            B1ElementwiseOperation b1_element_op,
-            CElementwiseOperation c_element_op)
-            : p_a_grid_{p_a_grid},
-              p_b_grid_{p_b_grid},
-              p_b1_grid_{p_b1_grid},
-              p_c_grid_{p_c_grid},
-              a_grid_desc_ak0_m_ak1_{
-                  DeviceOp::MakeAGridDescriptor_AK0_M_AK1(a_gs_ms_ks_lengths, a_gs_ms_ks_strides)},
-              b_grid_desc_bk0_n_bk1_{
-                  DeviceOp::MakeBGridDescriptor_BK0_N_BK1(b_gs_ns_ks_lengths, b_gs_ns_ks_strides)},
-              b1_grid_desc_bk0_n_bk1_{DeviceOp::MakeB1GridDescriptor_BK0_N_BK1(
-                  b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
-              c_grid_desc_m_n_{Transform::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths,
-                                                                  c_gs_ms_gemm1ns_strides)},
-              a_grid_desc_g_m_k_{
-                  Transform::MakeAGridDescriptor_G_M_K(a_gs_ms_ks_lengths, a_gs_ms_ks_strides)},
-              b_grid_desc_g_n_k_{
-                  Transform::MakeB0GridDescriptor_G_N_K(b_gs_ns_ks_lengths, b_gs_ns_ks_strides)},
-              b1_grid_desc_g_n_k_{Transform::MakeB1GridDescriptor_G_N_K(
-                  b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
-              c_grid_desc_g_m_n_{Transform::MakeCGridDescriptor_G_M_N(c_gs_ms_gemm1ns_lengths,
-                                                                      c_gs_ms_gemm1ns_strides)},
-              c_grid_desc_mblock_mperblock_nblock_nperblock_{},
-              block_2_ctile_map_{GridwiseGemm::MakeDefaultBlock2CTileMap(c_grid_desc_m_n_)},
-              a_element_op_{a_element_op},
-              b_element_op_{b_element_op},
-              acc_element_op_{acc_element_op},
-              b1_element_op_{b1_element_op},
-              c_element_op_{c_element_op},
-              c0_matrix_mask_{b_grid_desc_g_n_k_.GetLength(I1)},
-              raw_lengths_mz_nz_kz_gemm1nz_{a_gs_ms_ks_lengths[NumDimG + NumDimM - 1],
-                                            b_gs_ns_ks_lengths[NumDimG + NumDimN - 1],
-                                            b_gs_ns_ks_lengths[NumDimG + NumDimN + NumDimK - 1],
-                                            b1_gs_gemm1ns_gemm1ks_lengths[NumDimG + NumDimO - 1]},
-              a_mz_kz_strides_{a_gs_ms_ks_strides[NumDimG + NumDimM - 1],
-                               a_gs_ms_ks_strides[NumDimG + NumDimM + NumDimK - 1]},
-              b_nz_kz_strides_{b_gs_ns_ks_strides[NumDimG + NumDimN - 1],
-                               b_gs_ns_ks_strides[NumDimG + NumDimN + NumDimK - 1]},
-              b1_nz_kz_strides_{b1_gs_gemm1ns_gemm1ks_strides[NumDimG + NumDimO - 1],
-                                b1_gs_gemm1ns_gemm1ks_strides[NumDimG + NumDimO + NumDimN - 1]},
-              c_mz_gemm1nz_strides_{c_gs_ms_gemm1ns_strides[NumDimG + NumDimM - 1],
-                                    c_gs_ms_gemm1ns_strides[NumDimG + NumDimM + NumDimO - 1]},
-              batch_count_{c_grid_desc_g_m_n_.GetLength(I0)},
-              compute_base_ptr_of_batch_{
-                  a_grid_desc_g_m_k_, b_grid_desc_g_n_k_, b1_grid_desc_g_n_k_, c_grid_desc_g_m_n_}
-        {
-            // TODO ANT: implement bias addition
-            ignore = p_acc0_biases;
-            ignore = p_acc1_biases;
-            ignore = acc0_biases_gs_ms_ns_lengths;
-            ignore = acc0_biases_gs_ms_ns_strides;
-            ignore = acc1_biases_gs_ms_gemm1ns_lengths;
-            ignore = acc1_biases_gs_ms_gemm1ns_strides;
-
-            if(GridwiseGemm::CheckValidity(a_grid_desc_ak0_m_ak1_,
-                                           b_grid_desc_bk0_n_bk1_,
-                                           b1_grid_desc_bk0_n_bk1_,
-                                           c_grid_desc_m_n_,
-                                           block_2_ctile_map_))
-            {
-                c_grid_desc_mblock_mperblock_nblock_nperblock_ =
-                    GridwiseGemm::MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
-                        c_grid_desc_m_n_);
-            }
-        }
+        Argument(){}
 
         void Print() const
         {
-            std::cout << "a_grid_desc_g_m_k_: " << a_grid_desc_g_m_k_.GetLength(I0) << ", "
-                      << a_grid_desc_g_m_k_.GetLength(I1) << ", "
-                      << a_grid_desc_g_m_k_.GetLength(I2) << '\n';
-            // a_grid_desc_g_m_k_.Print();
-            std::cout << "b_grid_desc_g_n_k_: " << b_grid_desc_g_n_k_.GetLength(I0) << ", "
-                      << b_grid_desc_g_n_k_.GetLength(I1) << ", "
-                      << b_grid_desc_g_n_k_.GetLength(I2) << '\n';
-            // b_grid_desc_g_n_k_.Print();
-            std::cout << "b1_grid_desc_g_n_k_: " << b1_grid_desc_g_n_k_.GetLength(I0) << ", "
-                      << b1_grid_desc_g_n_k_.GetLength(I1) << ", "
-                      << b1_grid_desc_g_n_k_.GetLength(I2) << '\n';
-            // b1_grid_desc_g_n_k_.Print();
-            std::cout << "c_grid_desc_g_m_n_: " << c_grid_desc_g_m_n_.GetLength(I0) << ", "
-                      << c_grid_desc_g_m_n_.GetLength(I1) << ", "
-                      << c_grid_desc_g_m_n_.GetLength(I2) << '\n';
-            // c_grid_desc_g_m_n_.Print();
         }
-
-        // pointers
-        const ADataType* p_a_grid_;
-        const BDataType* p_b_grid_;
-        const B1DataType* p_b1_grid_;
-        CDataType* p_c_grid_;
-
-        // tensor descriptor
-        AGridDesc_AK0_M_AK1 a_grid_desc_ak0_m_ak1_;
-        BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1_;
-        B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1_;
-        CGridDesc_M_N c_grid_desc_m_n_;
-        AGridDesc_G_M_K a_grid_desc_g_m_k_;
-        BGridDesc_G_N_K b_grid_desc_g_n_k_;
-        B1GridDesc_G_N_K b1_grid_desc_g_n_k_;
-        CGridDesc_G_M_N c_grid_desc_g_m_n_;
-        typename GridwiseGemm::CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
-            c_grid_desc_mblock_mperblock_nblock_nperblock_;
-
-        // block-to-c-tile map
-        typename GridwiseGemm::DefaultBlock2CTileMap block_2_ctile_map_;
-
-        // element-wise op
-        AElementwiseOperation a_element_op_;
-        BElementwiseOperation b_element_op_;
-        AccElementwiseOperation acc_element_op_;
-        B1ElementwiseOperation b1_element_op_;
-        CElementwiseOperation c_element_op_;
-
-        // check C0 masking and padding
-        C0MatrixMask c0_matrix_mask_;
-
-        // For robust IsSupportedArgument() check
-        std::vector<index_t> raw_lengths_mz_nz_kz_gemm1nz_;
-        std::vector<index_t> a_mz_kz_strides_;
-        std::vector<index_t> b_nz_kz_strides_;
-        std::vector<index_t> b1_nz_kz_strides_;
-        std::vector<index_t> c_mz_gemm1nz_strides_;
-
-        index_t batch_count_;
-        ComputeBasePtrOfStridedBatch compute_base_ptr_of_batch_;
     };
 
     // Invoker
@@ -549,6 +501,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         float Run(const Argument& arg, const StreamConfig& stream_config = StreamConfig{})
         {
+#if 0
             if(!DeviceOp::IsSupportedArgument(arg))
             {
                 throw std::runtime_error("wrong! unsupported argument");
@@ -618,6 +571,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             }
 
             return ave_time;
+#endif
         }
 
         // polymorphic
@@ -637,9 +591,6 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
     static bool IsSupportedArgument(const Argument& arg)
     {
 #if 0
-        arg.Print();
-#endif
-
         if(!(ck::get_device_name() == "gfx908" || ck::get_device_name() == "gfx90a"))
         {
             return false;
@@ -702,6 +653,10 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                            arg.b1_grid_desc_bk0_n_bk1_,
                                            arg.c_grid_desc_m_n_,
                                            arg.block_2_ctile_map_);
+#else
+        return true;
+#endif
+
     }
 
     // polymorphic
@@ -710,56 +665,9 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         return IsSupportedArgument(*dynamic_cast<const Argument*>(p_arg));
     }
 
-    static auto MakeArgument(
-        const ADataType* p_a,
-        const BDataType* p_b,
-        const B1DataType* p_b1,
-        CDataType* p_c,
-        const std::array<void*, NumAcc0Bias> p_acc0_biases,
-        const std::array<void*, NumAcc1Bias> p_acc1_biases,
-        const std::vector<index_t>& a_gs_ms_ks_lengths,
-        const std::vector<index_t>& a_gs_ms_ks_strides,
-        const std::vector<index_t>& b_gs_ns_ks_lengths,
-        const std::vector<index_t>& b_gs_ns_ks_strides,
-        const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_lengths, // b1_gs_os_ns_lengths
-        const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
-        const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
-        const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
-        const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_lengths,
-        const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_strides,
-        const std::array<std::vector<ck::index_t>, NumAcc1Bias>
-            acc1_biases_gs_ms_gemm1ns_lengths, // acc1_biases_gs_ms_os_lengths
-        const std::array<std::vector<ck::index_t>, NumAcc1Bias>
-            acc1_biases_gs_ms_gemm1ns_strides, // acc1_biases_gs_ms_os_strides
-        AElementwiseOperation a_element_op,
-        BElementwiseOperation b_element_op,
-        AccElementwiseOperation acc_element_op,
-        B1ElementwiseOperation b1_element_op,
-        CElementwiseOperation c_element_op)
+    static auto MakeArgument()
     {
-        return Argument{p_a,
-                        p_b,
-                        p_b1,
-                        p_c,
-                        p_acc0_biases,
-                        p_acc1_biases,
-                        a_gs_ms_ks_lengths,
-                        a_gs_ms_ks_strides,
-                        b_gs_ns_ks_lengths,
-                        b_gs_ns_ks_strides,
-                        b1_gs_gemm1ns_gemm1ks_lengths, // b1_gs_os_ns_lengths
-                        b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
-                        c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
-                        c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
-                        acc0_biases_gs_ms_ns_lengths,
-                        acc0_biases_gs_ms_ns_strides,
-                        acc1_biases_gs_ms_gemm1ns_lengths, // acc1_biases_gs_ms_os_lengths
-                        acc1_biases_gs_ms_gemm1ns_strides, // acc1_biases_gs_ms_os_strides
-                        a_element_op,
-                        b_element_op,
-                        acc_element_op,
-                        b1_element_op,
-                        c_element_op};
+        return Argument{};
     }
 
     static auto MakeInvoker() { return Invoker{}; }

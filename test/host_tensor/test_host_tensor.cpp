@@ -10,6 +10,16 @@
 
 using namespace ck;
 
+#include <numeric>
+
+TEST(a, a)
+{
+    for (int i = 1; auto v : {1, 3, 7})
+    {
+        std::cout << i + v << std::endl;
+    }
+}
+
 TEST(HostTensorTranspose, TestBadArugment)
 {
     Tensor<float> tensor({13, 7});
