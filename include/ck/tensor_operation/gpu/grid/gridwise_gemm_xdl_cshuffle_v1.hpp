@@ -489,17 +489,15 @@ struct GridwiseGemm_k0mk1_k0nk1_mn_xdl_cshuffle_v1
                 c_shuffle_block_desc_mblock_mperblock_nblock_nperblock,
                 make_tuple(
                     make_freeze_transform(I0),
-                    make_unmerge_transform(make_tuple(
-                        Number<CShuffleMXdlPerWavePerShuffle>{}, // M0 (MXdlPerWave) per shuffle
-                        M1,                                      // M1 = MWave
-                        M2,                                      // M2 * M3 * M4 = MPerXdl
-                        M3,
-                        M4)),
+                    make_unmerge_transform(make_tuple(Number<8>{}, // M0 (MXdlPerWave) per shuffle
+                                                      M1,          // M1 = MWave
+                                                      M2,          // M2 * M3 * M4 = MPerXdl
+                                                      M3,
+                                                      M4)),
                     make_freeze_transform(I0),
-                    make_unmerge_transform(make_tuple(
-                        Number<CShuffleNXdlPerWavePerShuffle>{}, // N0 (NXdlPerWave) per shuffle
-                        N1,                                      // N1 = NWave
-                        N2))),                                   // N2 = NPerXdl
+                    make_unmerge_transform(make_tuple(Number<8>{}, // N0 (NXdlPerWave) per shuffle
+                                                      N1,          // N1 = NWave
+                                                      N2))),       // N2 = NPerXdl
                 make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3>{}),
                 make_tuple(
                     Sequence<>{}, Sequence<0, 2, 4, 5, 6>{}, Sequence<>{}, Sequence<1, 3, 7>{}));
