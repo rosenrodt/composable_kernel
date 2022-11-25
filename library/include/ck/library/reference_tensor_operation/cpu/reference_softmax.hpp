@@ -90,14 +90,14 @@ struct ReferenceSoftmax : public device::BaseOperator
             };
 
             arg.in_.ForEach([&](auto& self, auto idx) {
-                reduce_max(to_sm_stats_idx(idx)) =
-                    std::max(reduce_max(to_sm_stats_idx(idx)), static_cast<AccDataType>(self(idx)));
+                reduce_max(to_sm_stats_idx(idx)) = std::max(
+                    reduce_max(to_sm_stats_idx(idx)), ck::type_convert<AccDataType>(self(idx)));
             });
 
             Tensor<AccDataType> in_stable(arg.in_.mDesc);
             in_stable.ForEach([&](auto& self, auto idx) {
                 // numerator = exp(x - max(x))
-                self(idx) = std::exp(static_cast<AccDataType>(arg.in_(idx)) -
+                self(idx) = std::exp(ck::type_convert<AccDataType>(arg.in_(idx)) -
                                      reduce_max(to_sm_stats_idx(idx)));
             });
 
@@ -114,8 +114,10 @@ struct ReferenceSoftmax : public device::BaseOperator
             }
 
             arg.out_.ForEach([&](auto& self, auto idx) {
-                self(idx) = arg.alpha_ * in_stable(idx) / reduce_sum(to_sm_stats_idx(idx)) +
-                            arg.beta_ * self(idx);
+                AccDataType temp_result =
+                    arg.alpha_ * in_stable(idx) / reduce_sum(to_sm_stats_idx(idx)) +
+                    arg.beta_ * self(idx);
+                self(idx) = ck::type_convert<OutDataType>(temp_result);
             });
 
             return 0;
