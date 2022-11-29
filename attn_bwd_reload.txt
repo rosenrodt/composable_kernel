@@ -1,0 +1,63 @@
+# revised from notes by Dan Yao
+
+# regex search ex: \bdV(\b|(_\w*))
+
+Workgroup i(1~4)                                   // VGPR                               // LDS
+Zero init dQ_m_k(128, 64)                          // dQ(32VGPR)                         //
+Load dO_m_o(128, 64), O_m_o(128, 64), p_lse_m(128) // dQ(32VGPR), dO(16VGPR), O(16VGPR)  //
+Compute D_m(128) = rowsum(dO_m_o .* O_m_o)         // dQ(32VGPR)                         //
+For j=1:4 do:                                      // dQ(32VGPR)                         //
+  For S GEMM loop do:                              // dQ(32VGPR)                         //
+    Load Q_m_k(128, Gemm0KPerBlock)                // dQ(32VGPR)                         // Q(8KB) if Gemm0KPerBlock=32
+    Load K_n_k^T(Gemm0KPerBlock, 128)              // dQ(32VGPR)                         // Q(8KB), K^T(8KB) if Gemm0KPerBlock=32
+    Compute S_m_n(128, 128) += Q_m_k * K_n_k^T     // dQ(32VGPR), S(64VGPR)              // Q(8KB), K^T(8KB) if Gemm0KPerBlock=32
+  Compute Smasked_m_n(128, 128) = MASK(S_m_n)      // dQ(32VGPR), S(64VGPR)              //
+  Compute P_m_n(128, 128) = SOFTMAX(Smasked_m_n)   // dQ(32VGPR), P(64VGPR)              //
+  For dV GEMM loop do:                             // dQ(32VGPR), P(64VGPR)              //
+    Reload dO_m_o(VGradKPerBlock, 64)              // dQ(32VGPR), P(64VGPR)              // dO(8KB) if VGradKPerBlock=64
+    Shuffle P in VGPR to P^T in SRAM               // dQ(32VGPR), P(64VGPR)              // dO(8KB), P^T(16KB) if VGradKPerBlock=64
+    Compute dV_n_o(128, 64) += P_m_n^T * dO_m_o    // dQ(32VGPR), P(64VGPR), dV(32VGPR)  // dO(8KB), P^T(16KB) if VGradKPerBlock=64
+  Shuffle dV_n_o and accum to HBM                  // dQ(32VGPR), P(64VGPR)              // dV(16KB)
+  For dP GEMM loop do:                             // dQ(32VGPR), P(64VGPR)              //
+    Load dO_m_o(128, PGradKPerBlock) to SRAM       // dQ(32VGPR), P(64VGPR)              // dO(8KB) if PGradKPerBlock=32
+    Load V_n_o(128, PGradKPerBlock) to SRAM        // dQ(32VGPR), P(64VGPR)              // dO(8KB), V(8KB) if PGradKPerBlock=32
+    Compute dP_m_n(128, 128) += dO_m_o * V_n_o^T   // dQ(32VGPR), P(64VGPR), dP(64VGPR)  // dO(8KB), V(8KB) if PGradKPerBlock=32
+  Compute dS_m_n = P_m_n .* (dP_m_n - D_m)         // dQ(32VGPR), dS(64VGPR)             //
+  For dQ GEMM loop do:                             // dQ(32VGPR), dS(64VGPR)             //
+    Reload K_n_k(QGradKPerBlock, 64)               // dQ(32VGPR), dS(64VGPR)             // K(8KB) if QGradKPerBlock=64
+    Compute dQ_m_k(128, 64) += dS_m_n * K_n_k      // dQ(32VGPR), dS(64VGPR)             // K(8KB) if QGradKPerBlock=64
+  For dK GEMM loop do:                             // dQ(32VGPR), dS(64VGPR)             //
+    Reload Q_m_k(KGradKPerBlock, 64)               // dQ(32VGPR), dS(64VGPR)             // Q(8KB) if KGradKPerBlock=64
+    Shuffle dS in VGPR to dS^T in SRAM             // dQ(32VGPR), dS(64VGPR)             // Q(8KB), dS^T(16KB) if KGradKPerBlock=64
+    Compute dK_n_k(128, 64) = dS_m_n^T * Q_m_k     // dQ(32VGPR), dS(64VGPR), dK(32VGPR) // Q(8KB), dS^T(16KB) if KGradKPerBlock=64
+  Shuffle dK_n_k and accum to HBM                  // dQ(32VGPR)                         // dK(16KB)
+end for                                            // dQ(32VGPR)                         //
+Shuffle dQ_m_k and write to HBM                    //                                    // dQ(16KB)
+
+dV0(0:63, 64)   = P^T(0:63, 128)   * dO_m_o(128, 64)
+dV1(64:127, 64) = P^T(64:127, 128) * dO_m_o(128, 64)
+
+K^T -> LDS(K0_N_K1)
+K   -> LDS(N0_K0K1_N1)
+
+Action items
+- attention forward: store max/sum (or max+sum) for backward kernel (Dan Yao)
+- attention backward: host verification (Anthony)
+- attention backward
+  - no-reload prototype (Dan Yao)
+  - can-reload prototype (Anthony)
+- random generator for dropout mask used by both forward and backward (TBD)
+  - unit test
+  - integrate with forward
+  - integrate with backward
+- (optional) bias addition (TBD)
+
+Note: will start with batched attention permute, grouped version later version
+
+Implementation detail
+- Might reload Q, K, dO for higher occupancy or supporting head_dim=128
+   - Monolithic block is hard to scale up as VGPR/LDS size is limited
+- Expose minimal amount of tuning parameters (MNKPerBlock, precision)
+- Naming convention will not follow GEMM abstractions; use QKV to avoid confusion
+
+Degree of freedom, Q_headdim == K_headdim == V_headdim?
