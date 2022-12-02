@@ -352,7 +352,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
         return PadTensorDescriptor(vgrad_desc_nraw_oraw,
                                    make_tuple(NPerBlock, Gemm1NPerBlock),
-                                   Sequence<padder.PadM, padder.PadO>{});
+                                   Sequence<padder.PadN, padder.PadO>{});
     }
 
     template <typename YGridDesc_M_O, typename Number>
@@ -581,6 +581,9 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               p_b_grid_{p_b_grid},
               p_b1_grid_{p_b1_grid},
               p_c_grid_{p_c_grid},
+              p_ygrad_grid_{p_ygrad_grid},
+              p_qgrad_grid_{p_qgrad_grid},
+              p_kgrad_grid_{p_kgrad_grid},
               p_vgrad_grid_{p_vgrad_grid},
               a_grid_desc_ak0_m_ak1_{
                   DeviceOp::MakeAGridDescriptor_AK0_M_AK1(a_gs_ms_ks_lengths, a_gs_ms_ks_strides)},
@@ -591,8 +594,8 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               c_grid_desc_m_n_{Transform::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths,
                                                                   c_gs_ms_gemm1ns_strides)},
               // dV = P^T * dY
-              vgrad_grid_desc_n_o_{DeviceOp::MakeVGradGridDescriptor_N_O(c_gs_ms_gemm1ns_lengths,
-                                                                         c_gs_ms_gemm1ns_strides)},
+              vgrad_grid_desc_n_o_{DeviceOp::MakeVGradGridDescriptor_N_O(
+                  b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
               /* PTrans descriptor will be constructed in kernel */
               ygrad_grid_desc_m0_o_m1_{
                   DeviceOp::MakeYGradGridDescriptor_M0_O_M1(c_grid_desc_m_n_, Number<Y_M1>{})},
@@ -647,6 +650,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                     GridwiseGemm::MakeCGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock(
                         c_grid_desc_m_n_);
             }
+            Print();
         }
 
         void Print() const
@@ -659,14 +663,18 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                       << b_grid_desc_g_n_k_.GetLength(I1) << ", "
                       << b_grid_desc_g_n_k_.GetLength(I2) << '\n';
             // b_grid_desc_g_n_k_.Print();
-            std::cout << "b1_grid_desc_g_n_k_: " << b1_grid_desc_g_n_k_.GetLength(I0) << ", "
+            std::cout << "b1_grid_desc_g_o_n_: " << b1_grid_desc_g_n_k_.GetLength(I0) << ", "
                       << b1_grid_desc_g_n_k_.GetLength(I1) << ", "
                       << b1_grid_desc_g_n_k_.GetLength(I2) << '\n';
             // b1_grid_desc_g_n_k_.Print();
-            std::cout << "c_grid_desc_g_m_n_: " << c_grid_desc_g_m_n_.GetLength(I0) << ", "
+            std::cout << "c_grid_desc_g_m_o_: " << c_grid_desc_g_m_n_.GetLength(I0) << ", "
                       << c_grid_desc_g_m_n_.GetLength(I1) << ", "
                       << c_grid_desc_g_m_n_.GetLength(I2) << '\n';
             // c_grid_desc_g_m_n_.Print();
+            std::cout << "vgrad_grid_desc_n_o_: " << vgrad_grid_desc_n_o_.GetLength(I0) << ", " << vgrad_grid_desc_n_o_.GetLength(I1) << '\n';
+            std::cout << "ygrad_grid_desc_m0_o_m1_: " << ygrad_grid_desc_m0_o_m1_.GetLength(I0) << ", "
+                      << ygrad_grid_desc_m0_o_m1_.GetLength(I1) << ", "
+                      << ygrad_grid_desc_m0_o_m1_.GetLength(I2) << '\n';
         }
 
         // pointers
@@ -791,6 +799,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
             // Gemm1_K is split into Gemm1_K0/K1 where K1 is known at compile time, so we only need
             // to concern Gemm0's loop
+#if 1
             if(GridwiseGemm::CalculateHasMainKBlockLoop(K))
             {
                 ave_time = launch_kernel(integral_constant<bool, true>{});
@@ -799,7 +808,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             {
                 ave_time = launch_kernel(integral_constant<bool, false>{});
             }
-
+#endif
             return ave_time;
         }
 

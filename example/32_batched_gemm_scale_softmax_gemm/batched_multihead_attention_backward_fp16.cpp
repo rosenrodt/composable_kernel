@@ -15,7 +15,9 @@ Outputs:
 
 */
 
-#define PRINT_HOST 1
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#define PRINT_HOST 0
 
 #include <iostream>
 #include <numeric>
@@ -230,10 +232,10 @@ int run(int argc, char* argv[])
     // y_g_m_o = Softmax(alpha * Q_g_m_k * K_g_k_n) * V_g_n_o
     // y_g0_g1_m_o = reshape(y_g_m_o, [G0, G1, M, O])
     // y_g0_m_g1_o = permute(y_g0_g1_m_o, [0, 2, 1, 3])
-    ck::index_t M  = 4;
-    ck::index_t N  = 4;
-    ck::index_t K  = 4;
-    ck::index_t O  = 4;
+    ck::index_t M  = 256;
+    ck::index_t N  = 256;
+    ck::index_t K  = 256;
+    ck::index_t O  = 256;
     ck::index_t G0 = 1;
     ck::index_t G1 = 1;
 
@@ -340,10 +342,10 @@ int run(int argc, char* argv[])
         ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
         break;
     default:
-        q_gs_ms_ks.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
+        q_gs_ms_ks.GenerateTensorValue(GeneratorTensor_1<DataType>{1});
         k_gs_ns_ks.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
         v_gs_os_ns.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
-        ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_1<DataType>{10});
+        ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_Sequential<2>{}); // dy[g0, g1, m, n] = m
     }
 
     // calculate y beforehand
@@ -373,14 +375,14 @@ int run(int argc, char* argv[])
     DeviceMem vgrad_device_buf(sizeof(DataType) * v_gs_os_ns.mDesc.GetElementSpaceSize());
     DeviceMem ygrad_device_buf(sizeof(DataType) * y_gs_ms_os.mDesc.GetElementSpaceSize());
 
-    // TODO ANT: make sure K/V gradients are zeroed
     q_device_buf.ToDevice(q_gs_ms_ks.mData.data());
     k_device_buf.ToDevice(k_gs_ns_ks.mData.data());
     v_device_buf.ToDevice(v_gs_os_ns.mData.data());
     y_device_buf.ToDevice(y_gs_ms_os.mData.data());
     ygrad_device_buf.ToDevice(y_gs_ms_os.mData.data());
+    kgrad_device_buf.SetZero();
+    vgrad_device_buf.SetZero();
 
-    // TODO ANT: attention backward kernel
     auto gemm     = DeviceGemmInstance{};
     auto invoker  = gemm.MakeInvoker();
     auto argument = gemm.MakeArgument(
@@ -445,10 +447,10 @@ int run(int argc, char* argv[])
         Tensor<DataType> ygrad_dot_y_g_m({BatchCount, M});
 
         ygrad_gs_ms_os.ForEach([&](auto& self, auto idx) {
-            ygrad_g_m_o(idx[0] * G1 * idx[1], idx[3], idx[2]) = self(idx);
+            ygrad_g_m_o(idx[0] * G1 * idx[1], idx[2], idx[3]) = self(idx);
         });
 
-        if(PRINT_HOST)
+        if(1)
         {
             std::cout << "q_g_m_k ref:\n" << q_g_m_k;
             std::cout << "k_g_n_k ref:\n" << k_g_n_k;
@@ -480,11 +482,16 @@ int run(int argc, char* argv[])
         //        [0.1748777 , 0.47536689, 0.1748777 , 0.1748777 ],
         //        [0.1748777 , 0.1748777 , 0.47536689, 0.1748777 ],
         //        [0.1748777 , 0.1748777 , 0.1748777 , 0.47536689]])
+        Tensor<float> fake_stats({BatchCount, M});
+        fake_stats.GenerateTensorValue(GeneratorTensor_1<float>{6.545177444479562f}); // FIXME ANT: temporary
         auto ref_softmax          = ReferenceSoftmaxInstance{};
         auto ref_softmax_invoker  = ref_softmax.MakeInvoker();
-        auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2});
+        // auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2});
 
-        ref_softmax_invoker.Run(ref_softmax_argument);
+        // ref_softmax_invoker.Run(ref_softmax_argument);
+        auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2}, &fake_stats);
+
+        ref_softmax_invoker.RunWithPreCalcStats(ref_softmax_argument);
 
         // Y = P * V
         auto ref_gemm1          = ReferenceGemm1Instance{};
