@@ -379,7 +379,7 @@ int run(int argc, char* argv[])
     k_device_buf.ToDevice(k_gs_ns_ks.mData.data());
     v_device_buf.ToDevice(v_gs_os_ns.mData.data());
     y_device_buf.ToDevice(y_gs_ms_os.mData.data());
-    ygrad_device_buf.ToDevice(y_gs_ms_os.mData.data());
+    ygrad_device_buf.ToDevice(ygrad_gs_ms_os.mData.data());
     kgrad_device_buf.SetZero();
     vgrad_device_buf.SetZero();
 
@@ -450,7 +450,7 @@ int run(int argc, char* argv[])
             ygrad_g_m_o(idx[0] * G1 * idx[1], idx[2], idx[3]) = self(idx);
         });
 
-        if(1)
+        if(PRINT_HOST)
         {
             std::cout << "q_g_m_k ref:\n" << q_g_m_k;
             std::cout << "k_g_n_k ref:\n" << k_g_n_k;
@@ -483,7 +483,7 @@ int run(int argc, char* argv[])
         //        [0.1748777 , 0.1748777 , 0.47536689, 0.1748777 ],
         //        [0.1748777 , 0.1748777 , 0.1748777 , 0.47536689]])
         Tensor<float> fake_stats({BatchCount, M});
-        fake_stats.GenerateTensorValue(GeneratorTensor_1<float>{6.545177444479562f}); // FIXME ANT: temporary
+        fake_stats.GenerateTensorValue(GeneratorTensor_1<float>{1.f /* 6.545177444479562f */}); // FIXME ANT: temporary
         auto ref_softmax          = ReferenceSoftmaxInstance{};
         auto ref_softmax_invoker  = ref_softmax.MakeInvoker();
         // auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2});

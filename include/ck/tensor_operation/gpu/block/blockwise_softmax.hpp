@@ -115,7 +115,7 @@ struct BlockwiseSoftmax
         // Pi = exp(Si) / sum(exp(S0) + exp(S1) + ...)
         //    = exp(Si) / exp(log(sum(exp() + ...)))
         //    = exp(Si - log(sum(exp() + ...)))
-        float lse = 1.f; // FIXME ANT: temporary
+        float lse = 1.f;//6.545177444479562f; // FIXME ANT: temporary
         static_for<0, MRepeat, 1>{}([&](auto iM) {
             static_for<0, KRepeat, 1>{}([&](auto iK) {
                 auto offset = Number<ThreadSliceDesc_M_K{}.CalculateOffset(make_tuple(iM, iK))>{};

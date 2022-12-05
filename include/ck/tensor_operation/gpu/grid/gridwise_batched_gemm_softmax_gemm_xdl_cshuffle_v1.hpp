@@ -1018,7 +1018,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             true,
             true,
             1>(ygrad_grid_desc_m0_o_m1,
-               make_multi_index(0, gemm1_n_block_data_idx_on_grid, 0),
+               make_multi_index(m_block_data_idx_on_grid / VGradGemmTile_N_O_M::YGrad_M1,
+                                gemm1_n_block_data_idx_on_grid,
+                                0),
                tensor_operation::element_wise::PassThrough{},
                ygrad_block_desc_m0_o_m1,
                make_multi_index(0, 0, 0),
@@ -1050,11 +1052,11 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             vgrad_grid_desc_n_o,
             make_tuple(
                 make_unmerge_transform(make_tuple(I1, // may place a dummy variable
-                                                  VGradGemmTile_N_O_M::GemmNRepeat,
-                                                  VGradGemmTile_N_O_M::GemmNWave)),
+                                                  VGradGemmTile_N_O_M::GemmNWave,
+                                                  MPerXdl)),
                 make_unmerge_transform(make_tuple(I1,
-                                                  VGradGemmTile_N_O_M::GemmORepeat,
-                                                  VGradGemmTile_N_O_M::GemmOWave))),
+                                                  VGradGemmTile_N_O_M::GemmOWave,
+                                                  NPerXdl))),
             make_tuple(Sequence<0>{}, Sequence<1>{}),
             make_tuple(Sequence<0, 2, 4>{}, Sequence<1, 3, 5>{}));
 
@@ -1112,7 +1114,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             decltype(vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4),
             decltype(vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4),
             tensor_operation::element_wise::PassThrough, // CElementwiseOperation
-            decltype(vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4.GetLengths()),          // SliceLengths
+            decltype(vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4.GetLengths()), // SliceLengths
             Sequence<0, 1, 2, 3, 4, 5, 6, 7>,     // AccessOrder
             7,                                    // VectorDim
             2,                                    // ScalarPerVector
@@ -1129,6 +1131,22 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                    o_thread_data_nd_idx_on_grid[I4]),
                   tensor_operation::element_wise::PassThrough{});
 
+#if 0
+        if(hipThreadIdx_x % 32 < 4)
+        {
+            printf("wid %zd tid %zd _n0_o0_n1_o1_n2_o2_o3_o4 %d %d %d %d %d %d %d %d\n",
+                   hipBlockIdx_x,
+                   hipThreadIdx_x,
+                   n_thread_data_nd_idx_on_grid[I0],
+                   o_thread_data_nd_idx_on_grid[I0],
+                   n_thread_data_nd_idx_on_grid[I1],
+                   o_thread_data_nd_idx_on_grid[I1],
+                   n_thread_data_nd_idx_on_grid[I2],
+                   o_thread_data_nd_idx_on_grid[I2],
+                   o_thread_data_nd_idx_on_grid[I3],
+                   o_thread_data_nd_idx_on_grid[I4]);
+        }
+#endif
         // p_thread_slice_copy_step will be in for loop
         constexpr auto ygrad_block_slice_copy_step =
             make_multi_index(VGradGemmTile_N_O_M::YGrad_M0, 0, 0);
@@ -1136,10 +1154,21 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             make_multi_index(-MPerBlock / VGradGemmTile_N_O_M::YGrad_M1, 0, 0);
 
         // vgrad gemm output tile
-        constexpr auto vgrad_block_slice_copy_step = make_multi_index(NPerBlock, 0);
-
+        const auto vgrad_block_slice_copy_step =
+            make_multi_index(VGradGemmTile_N_O_M::GemmNRepeat, 0, 0, 0, 0, 0, 0, 0);
+#if 0
+        if(hipThreadIdx_x == 0)
+        {
+            printf("bid %zd, n_grid = %d, o_grid = %d, step N0 = %d\n",
+                   hipBlockIdx_x,
+                   n_thread_data_idx_on_grid,
+                   o_thread_data_idx_on_grid,
+                   n_thread_data_on_grid_to_n0_n1_n2_adaptor.CalculateBottomIndex(
+                       make_multi_index(NPerBlock))[I0]);
+        }
+#endif
         constexpr index_t num_vgrad_gemm_loop = MPerBlock / VGradGemmTile_N_O_M::Sum_M;
-#if 1
+
         // gemm1 K loop
         index_t gemm1_k_block_outer_index = 0;
         do
@@ -1226,12 +1255,32 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
             block_sync_lds(); // wait for lds read in gemm0 blockwise gemm
 
+#if 0
+            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
+            {
+                printf("tid %zd, S[0:3] = %f, %f, %f, %f\n",
+                       hipThreadIdx_x,
+                       acc_thread_buf[I0],
+                       acc_thread_buf[I1],
+                       acc_thread_buf[I2],
+                       acc_thread_buf[I3]);
+            }
+#endif
+
             // softmax
             // TODO ANT: run with precalculated stat
             blockwise_softmax.RunWithPreCalcStats(acc_thread_buf);
 
-#if 1
-            // TODO ANT: check P & Q*V matrix
+#if 0
+            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
+            {
+                printf("tid %zd, P[0:3] = %f, %f, %f, %f\n",
+                       hipThreadIdx_x,
+                       acc_thread_buf[I0],
+                       acc_thread_buf[I1],
+                       acc_thread_buf[I2],
+                       acc_thread_buf[I3]);
+            }
 #endif
 
             block_sync_lds(); // wait for gemm1 LDS read
@@ -1273,10 +1322,38 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
                 block_sync_lds(); // sync before write
                 ygrad_blockwise_copy.RunWrite(ygrad_block_desc_m0_o_m1, ygrad_block_buf);
+#if 0
+                if (hipBlockIdx_x == 0)
+                {
+                    debug::print_shared(
+                        p_block_buf.p_data_,
+                        index_t(p_block_desc_m0_n0_m1_n1_m2_n2_n3_n4.GetElementSpaceSize()));
+                }
+#endif
+#if 0
+                if (hipBlockIdx_x == 0)
+                {
+                    debug::print_shared(ygrad_block_buf.p_data_,
+                                        index_t(ygrad_block_desc_m0_o_m1.GetElementSpaceSize()));
+                }
+#endif
 
                 block_sync_lds(); // sync before read
                 vgrad_blockwise_gemm.Run(p_block_buf, ygrad_block_buf, vgrad_acc_thread_buf);
 
+#if 1
+                if(hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
+                {
+                    printf("outer %d inner %d tid %zd, dV[0:3] = %f, %f, %f, %f\n",
+                           gemm1_k_block_outer_index,
+                           vgrad_gemm_loop_idx.value,
+                           hipThreadIdx_x,
+                           vgrad_acc_thread_buf[I0],
+                           vgrad_acc_thread_buf[I1],
+                           vgrad_acc_thread_buf[I2],
+                           vgrad_acc_thread_buf[I3]);
+                }
+#endif
             }); // end gemm dV
 
             // atomic_add vgrad
@@ -1292,9 +1369,10 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                 b_block_reset_copy_step); // rewind K and step N
             ygrad_blockwise_copy.MoveSrcSliceWindow(ygrad_grid_desc_m0_o_m1,
                                                     ygrad_block_reset_copy_step); // rewind M
+            vgrad_thread_copy_vgpr_to_global.MoveDstSliceWindow(
+                vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4, vgrad_block_slice_copy_step); // step N
 
         } while(++gemm1_k_block_outer_index < num_gemm1_k_block_outer_loop); // end j loop
-#endif
 
         // TODO ANT:
         // shuffle dQ and write

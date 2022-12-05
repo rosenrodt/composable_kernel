@@ -136,7 +136,7 @@ check_err(span<const T> out,
         {
             max_err = err > max_err ? err : max_err;
             err_count++;
-            if(err_count < 5)
+            if(err_count < 32)
             {
                 std::cerr << msg << std::setw(12) << std::setprecision(7) << " out[" << i
                           << "] != ref[" << i << "]: " << o << " != " << r << std::endl;

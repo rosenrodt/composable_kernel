@@ -18,6 +18,8 @@
 #include "ck/host_utility/device_prop.hpp"
 #include "ck/host_utility/kernel_launch.hpp"
 
+#include "ck/library/utility/host_tensor.hpp"
+
 namespace ck {
 namespace tensor_operation {
 namespace device {
@@ -350,6 +352,10 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                 v_gs_ns_os_lengths_vec, v_gs_ns_os_strides_vec)
                 .second;
 
+        // LogRangeAsType<float>(std::cout << "v_gs_os_ns_lengths_vec: ", v_gs_os_ns_lengths_vec, ",") << std::endl;
+        // LogRangeAsType<float>(std::cout << "v_gs_os_ns_strides_vec: ", v_gs_os_ns_strides_vec, ",") << std::endl;
+        // LogRangeAsType<float>(std::cout << "v_gs_ns_os_lengths_vec: ", v_gs_ns_os_lengths_vec, ",") << std::endl;
+        // LogRangeAsType<float>(std::cout << "v_gs_ns_os_strides_vec: ", v_gs_ns_os_strides_vec, ",") << std::endl;
         return PadTensorDescriptor(vgrad_desc_nraw_oraw,
                                    make_tuple(NPerBlock, Gemm1NPerBlock),
                                    Sequence<padder.PadN, padder.PadO>{});
@@ -740,7 +746,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
 
             const index_t grid_size =
                 arg.block_2_ctile_map_.CalculateGridSize(arg.c_grid_desc_m_n_) * arg.batch_count_;
-
+            std::cout << "grid size = " << grid_size << '\n';
             // Gemm0_K
             const auto K =
                 arg.a_grid_desc_ak0_m_ak1_.GetLength(I0) * arg.a_grid_desc_ak0_m_ak1_.GetLength(I2);
