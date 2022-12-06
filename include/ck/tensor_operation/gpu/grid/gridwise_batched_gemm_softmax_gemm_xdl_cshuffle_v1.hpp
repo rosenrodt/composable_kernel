@@ -892,10 +892,12 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 make_tuple(Sequence<0, 2>{}, Sequence<1>{}),
                 make_tuple(Sequence<0>{}, Sequence<1>{}));
 
+            // HACK: for unmerge transform, the length of highest dim is irrelevant so we put dummy
+            // variable I1 there
             return transform_tensor_descriptor(
                 p_block_desc_m_n,
-                make_tuple(make_unmerge_transform(make_tuple(P_M0, P_M1, P_M2)),
-                           make_unmerge_transform(make_tuple(P_N0, P_N1, P_N2, P_N3, P_N4))),
+                make_tuple(make_unmerge_transform(make_tuple(I1, P_M1, P_M2)),
+                           make_unmerge_transform(make_tuple(I1, P_N1, P_N2, P_N3, P_N4))),
                 make_tuple(Sequence<0>{}, Sequence<1>{}),
                 make_tuple(Sequence<0, 2, 4>{}, Sequence<1, 3, 5, 6, 7>{}));
         }
@@ -1048,10 +1050,12 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
         auto vgrad_acc_thread_buf = vgrad_blockwise_gemm.GetCThreadBuffer();
 
+        // HACK: for unmerge transform, the length of highest dim is irrelevant so we put dummy
+        // variable I1 there
         const auto vgrad_grid_desc_n0_o0_n1_o1_n2_o2 = transform_tensor_descriptor(
             vgrad_grid_desc_n_o,
             make_tuple(
-                make_unmerge_transform(make_tuple(I1, // may place a dummy variable
+                make_unmerge_transform(make_tuple(I1,
                                                   VGradGemmTile_N_O_M::GemmNWave,
                                                   MPerXdl)),
                 make_unmerge_transform(make_tuple(I1,
