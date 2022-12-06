@@ -52,6 +52,7 @@ using YElementOp   = PassThrough;
 using DataType         = F16;
 using AccDataType      = F32;
 using ShuffleDataType  = F32;
+using LSEDataType      = F32;
 using Acc0BiasDataType = ck::Tuple<>;
 using Acc1BiasDataType = ck::Tuple<>;
 
@@ -78,6 +79,7 @@ using DeviceGemmInstance =
         NumDimK,
         NumDimO,
         DataType,
+        LSEDataType,
         Acc0BiasDataType,
         Acc1BiasDataType,
         AccDataType,
@@ -174,14 +176,16 @@ template <typename TensorQ,
           typename TensorV,
           typename TensorS,
           typename TensorP,
-          typename TensorY>
+          typename TensorY,
+          typename TensorLSE = TensorP>
 void run_attention_fwd_host(const TensorQ& q_g_m_k,
                             const TensorK& k_g_n_k,
                             const TensorV& v_g_n_o,
                             const float alpha,
                             TensorS& s_g_m_n,
                             TensorP& p_g_m_n,
-                            TensorY& y_g_m_o)
+                            TensorY& y_g_m_o,
+                            TensorLSE& lse_g_m)
 {
     // S = alpha * Q * K^T
     auto k_g_k_n            = k_g_n_k.Transpose({0, 2, 1});
@@ -209,7 +213,7 @@ void run_attention_fwd_host(const TensorQ& q_g_m_k,
     //        [0.1748777 , 0.1748777 , 0.1748777 , 0.47536689]])
     auto ref_softmax          = ReferenceSoftmaxInstance{};
     auto ref_softmax_invoker  = ref_softmax.MakeInvoker();
-    auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2});
+    auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2}, &lse_g_m);
 
     ref_softmax_invoker.Run(ref_softmax_argument);
 
@@ -309,16 +313,27 @@ int run(int argc, char* argv[])
             ? std::vector<ck::index_t>{M * G1 * O, O, G1 * O, 1} // Y layout [G0, M, G1, O]
             : std::vector<ck::index_t>{G1 * M * O, M * O, O, 1}; // Y layout [G0, G1, M, O]
 
+    // The softmax stat log-sum-exp (LSE) is used to speed up softmax calculation in backward pass
+    // Pi = exp(Si) / sum(exp(S0) + exp(S1) + ...)
+    //    = exp(Si) / exp(log(sum(exp() + ...)))
+    //    = exp(Si - log(sum(exp() + ...)))
+    //               ^^^^^^^^^^^^^^^^^^^^^
+    //                       LSE
+    std::vector<ck::index_t> lse_gs_ms_lengths{G0, G1, M};
+    std::vector<ck::index_t> lse_gs_ms_strides{G1 * M, M, 1}; // LSE layout [G0, G1, M]
+
     Tensor<DataType> q_gs_ms_ks(q_gs_ms_ks_lengths, q_gs_ms_ks_strides);
     Tensor<DataType> k_gs_ns_ks(k_gs_ns_ks_lengths, k_gs_ns_ks_strides);
     Tensor<DataType> v_gs_os_ns(v_gs_os_ns_lengths, v_gs_os_ns_strides);
     Tensor<DataType> y_gs_ms_os(y_gs_ms_os_lengths, y_gs_ms_os_strides);
     Tensor<DataType> ygrad_gs_ms_os(y_gs_ms_os_lengths, y_gs_ms_os_strides);
+    Tensor<LSEDataType> lse_gs_ms(lse_gs_ms_lengths, lse_gs_ms_strides);
 
     std::cout << "q_gs_ms_ks: " << q_gs_ms_ks.mDesc << std::endl;
     std::cout << "k_gs_ns_ks: " << k_gs_ns_ks.mDesc << std::endl;
     std::cout << "v_gs_os_ns: " << v_gs_os_ns.mDesc << std::endl;
     std::cout << "y_gs_ms_os: " << y_gs_ms_os.mDesc << std::endl;
+    std::cout << "lse_gs_ms_os: " << lse_gs_ms.mDesc << std::endl;
 
     switch(init_method)
     {
@@ -348,13 +363,14 @@ int run(int argc, char* argv[])
         ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_Sequential<2>{}); // dy[g0, g1, m, n] = m
     }
 
-    // calculate y beforehand
+    // calculate y & log-sum-exp beforehand
     Tensor<DataType> q_g_m_k({BatchCount, M, K});
     Tensor<DataType> k_g_n_k({BatchCount, N, K});
     Tensor<DataType> v_g_n_o({BatchCount, N, O});
     Tensor<AccDataType> s_g_m_n({BatchCount, M, N});
     Tensor<DataType> p_g_m_n({BatchCount, M, N});
     Tensor<DataType> y_g_m_o({BatchCount, M, O});
+    Tensor<LSEDataType> lse_g_m({BatchCount, M});
 
     q_gs_ms_ks.ForEach(
         [&](auto& self, auto idx) { q_g_m_k(idx[0] * G1 + idx[1], idx[2], idx[3]) = self(idx); });
@@ -362,14 +378,22 @@ int run(int argc, char* argv[])
         [&](auto& self, auto idx) { k_g_n_k(idx[0] * G1 + idx[1], idx[2], idx[3]) = self(idx); });
     v_gs_os_ns.ForEach(
         [&](auto& self, auto idx) { v_g_n_o(idx[0] * G1 + idx[1], idx[3], idx[2]) = self(idx); });
+    lse_gs_ms.ForEach(
+        [&](auto& self, auto idx) { lse_g_m(idx[0] * G1 + idx[1], idx[2]) = self(idx); });
 
-    run_attention_fwd_host(q_g_m_k, k_g_n_k, v_g_n_o, alpha, s_g_m_n, p_g_m_n, y_g_m_o);
+    run_attention_fwd_host(q_g_m_k, k_g_n_k, v_g_n_o, alpha, s_g_m_n, p_g_m_n, y_g_m_o, lse_g_m);
+
+    y_gs_ms_os.ForEach(
+        [&](auto& self, auto idx) { self(idx) = y_g_m_o(idx[0] * G1 + idx[1], idx[2], idx[3]); });
+    lse_gs_ms.ForEach(
+        [&](auto& self, auto idx) { self(idx) = lse_g_m(idx[0] * G1 + idx[1], idx[2]); });
 
     // qkv gradients have the same descriptor as with qkv
     DeviceMem q_device_buf(sizeof(DataType) * q_gs_ms_ks.mDesc.GetElementSpaceSize());
     DeviceMem k_device_buf(sizeof(DataType) * k_gs_ns_ks.mDesc.GetElementSpaceSize());
     DeviceMem v_device_buf(sizeof(DataType) * v_gs_os_ns.mDesc.GetElementSpaceSize());
     DeviceMem y_device_buf(sizeof(DataType) * y_gs_ms_os.mDesc.GetElementSpaceSize());
+    DeviceMem lse_device_buf(sizeof(LSEDataType) * lse_gs_ms.mDesc.GetElementSpaceSize());
     DeviceMem qgrad_device_buf(sizeof(DataType) * q_gs_ms_ks.mDesc.GetElementSpaceSize());
     DeviceMem kgrad_device_buf(sizeof(DataType) * k_gs_ns_ks.mDesc.GetElementSpaceSize());
     DeviceMem vgrad_device_buf(sizeof(DataType) * v_gs_os_ns.mDesc.GetElementSpaceSize());
@@ -379,6 +403,7 @@ int run(int argc, char* argv[])
     k_device_buf.ToDevice(k_gs_ns_ks.mData.data());
     v_device_buf.ToDevice(v_gs_os_ns.mData.data());
     y_device_buf.ToDevice(y_gs_ms_os.mData.data());
+    lse_device_buf.ToDevice(lse_gs_ms.mData.data());
     ygrad_device_buf.ToDevice(ygrad_gs_ms_os.mData.data());
     kgrad_device_buf.SetZero();
     vgrad_device_buf.SetZero();
@@ -390,6 +415,7 @@ int run(int argc, char* argv[])
         static_cast<DataType*>(k_device_buf.GetDeviceBuffer()),
         static_cast<DataType*>(v_device_buf.GetDeviceBuffer()),
         static_cast<DataType*>(y_device_buf.GetDeviceBuffer()),
+        static_cast<LSEDataType*>(lse_device_buf.GetDeviceBuffer()),
         static_cast<DataType*>(ygrad_device_buf.GetDeviceBuffer()),
         static_cast<DataType*>(qgrad_device_buf.GetDeviceBuffer()),
         static_cast<DataType*>(kgrad_device_buf.GetDeviceBuffer()),
@@ -404,6 +430,7 @@ int run(int argc, char* argv[])
         v_gs_os_ns_strides,
         y_gs_ms_os_lengths,
         y_gs_ms_os_strides,
+        lse_gs_ms_lengths,
         {}, // std::array<std::vector<ck::index_t>, 1>{acc0_biases_gs_ms_ns_lengths},
         {}, // std::array<std::vector<ck::index_t>, 1>{acc0_biases_gs_ms_ns_strides},
         {}, // std::array<std::vector<ck::index_t>, 1>{acc1_biases_gs_ms_os_lengths},
@@ -423,6 +450,7 @@ int run(int argc, char* argv[])
 
     float ave_time = invoker.Run(argument, StreamConfig{nullptr, time_kernel});
 
+    // TODO ANT: add dQ/dK/dV flops & bytes
     std::size_t flop      = (size_t(M) * N * K * 2 + size_t(M) * N * O * 2) * BatchCount;
     std::size_t num_btype = (sizeof(DataType) * M * K + sizeof(DataType) * K * N +
                              sizeof(DataType) * N * O + sizeof(DataType) * M * O) *
@@ -457,49 +485,6 @@ int run(int argc, char* argv[])
             std::cout << "v_g_n_o ref:\n" << v_g_n_o;
             std::cout << "ygrad_g_m_o ref:\n" << ygrad_g_m_o;
         }
-
-        // S = alpha * Q * K^T
-        auto k_g_k_n            = k_g_n_k.Transpose({0, 2, 1});
-        auto ref_gemm0          = ReferenceGemm0Instance{};
-        auto ref_gemm0_invoker  = ref_gemm0.MakeInvoker();
-        auto ref_gemm0_argument = ref_gemm0.MakeArgument(
-            q_g_m_k, k_g_k_n, s_g_m_n, PassThrough{}, PassThrough{}, Scale{alpha});
-
-        ref_gemm0_invoker.Run(ref_gemm0_argument);
-
-        // masking
-#if 0
-        const auto mask = DeviceGemmInstance::C0MatrixMask(N);
-        s_g_m_n.ForEach([&](auto& self, auto idx) {
-            if(mask.IsMaskedElement(idx[1], idx[2]))
-                self(idx) = -ck::NumericLimits<float>::Infinity();
-        });
-#endif
-
-        // P = Softmax(S)
-        // >>> scipy.special.softmax(numpy.eye(4), 1)
-        // array([[0.47536689, 0.1748777 , 0.1748777 , 0.1748777 ],
-        //        [0.1748777 , 0.47536689, 0.1748777 , 0.1748777 ],
-        //        [0.1748777 , 0.1748777 , 0.47536689, 0.1748777 ],
-        //        [0.1748777 , 0.1748777 , 0.1748777 , 0.47536689]])
-        Tensor<float> fake_stats({BatchCount, M});
-        fake_stats.GenerateTensorValue(GeneratorTensor_1<float>{1.f /* 6.545177444479562f */}); // FIXME ANT: temporary
-        auto ref_softmax          = ReferenceSoftmaxInstance{};
-        auto ref_softmax_invoker  = ref_softmax.MakeInvoker();
-        // auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2});
-
-        // ref_softmax_invoker.Run(ref_softmax_argument);
-        auto ref_softmax_argument = ref_softmax.MakeArgument(s_g_m_n, p_g_m_n, 1, 0, {2}, &fake_stats);
-
-        ref_softmax_invoker.RunWithPreCalcStats(ref_softmax_argument);
-
-        // Y = P * V
-        auto ref_gemm1          = ReferenceGemm1Instance{};
-        auto ref_gemm1_invoker  = ref_gemm1.MakeInvoker();
-        auto ref_gemm1_argument = ref_gemm1.MakeArgument(
-            p_g_m_n, v_g_n_o, y_g_m_o, PassThrough{}, PassThrough{}, PassThrough{});
-
-        ref_gemm1_invoker.Run(ref_gemm1_argument);
 
         // Gradients
         auto ref_gemm_grad         = ReferenceGemmGradInstance{};

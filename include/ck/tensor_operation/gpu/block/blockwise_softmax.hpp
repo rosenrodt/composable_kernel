@@ -108,20 +108,20 @@ struct BlockwiseSoftmax
         });
     }
 
-    template <typename CThreadBuffer>
-    __host__ __device__ void RunWithPreCalcStats(CThreadBuffer& in_thread_buf /* TODO ANT: add log-sum-exp */)
+    template <typename CThreadBuffer, typename LSEBuffer>
+    __host__ __device__ void RunWithPreCalcStats(CThreadBuffer& in_thread_buf,
+                                                 const LSEBuffer& lse_thread_buf)
     {
         // calculate exp for elements using pre-calculated stats LSE (log-sum-exp)
         // Pi = exp(Si) / sum(exp(S0) + exp(S1) + ...)
         //    = exp(Si) / exp(log(sum(exp() + ...)))
         //    = exp(Si - log(sum(exp() + ...)))
-        float lse = 1.f;//6.545177444479562f; // FIXME ANT: temporary
         static_for<0, MRepeat, 1>{}([&](auto iM) {
             static_for<0, KRepeat, 1>{}([&](auto iK) {
                 auto offset = Number<ThreadSliceDesc_M_K{}.CalculateOffset(make_tuple(iM, iK))>{};
                 in_thread_buf(offset) = IgnoreNaN && ck::math::isnan(in_thread_buf[offset])
                                             ? 0
-                                            : math::exp(in_thread_buf[offset] - lse);
+                                            : math::exp(in_thread_buf[offset] - lse_thread_buf[iM]);
             });
         });
     }

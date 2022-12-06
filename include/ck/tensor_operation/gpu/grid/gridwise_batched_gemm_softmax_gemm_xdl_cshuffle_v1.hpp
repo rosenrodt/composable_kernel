@@ -21,6 +21,7 @@ namespace ck {
 template <typename DataType,
           typename FloatGemmAcc,
           typename FloatCShuffle,
+          typename FloatLSE,
           typename AElementwiseOperation,
           typename BElementwiseOperation,
           typename AccElementwiseOperation,
@@ -31,6 +32,7 @@ template <typename DataType,
           typename BGridDesc_BK0_N_BK1,
           typename B1GridDesc_BK0_N_BK1,
           typename CGridDesc_M_N,
+          typename LSEGridDesc_M,
           index_t NumGemmKPrefetchStage,
           index_t BlockSize,
           index_t MPerBlock,
@@ -410,6 +412,22 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         return c_grid_desc_mblock_mperblock_nblock_nperblock;
     }
 
+    __host__ __device__ static constexpr auto
+    MakeLSEGridDescriptor_MBlock_MRepeat_NWave_MPerXdl(const LSEGridDesc_M& lse_grid_desc_m)
+    {
+        const index_t M      = lse_grid_desc_m.GetLength(I0);
+        const index_t MBlock = M / MPerBlock;
+        constexpr index_t MWave  = MPerBlock / (MXdlPerWave * MPerXdl);
+
+        const auto lse_grid_desc_mblock_mrepeat_mwave_mperxdl = transform_tensor_descriptor(
+            lse_grid_desc_m,
+            make_tuple(make_unmerge_transform(make_tuple(MBlock, Number<MXdlPerWave>{}, MWave, Number<MPerXdl>{}))),
+            make_tuple(Sequence<0>{}),
+            make_tuple(Sequence<0, 1, 2, 3>{}));
+
+        return lse_grid_desc_mblock_mrepeat_mwave_mperxdl;
+    }
+
     // return block_id to C matrix tile idx (m0, n0) mapping
     __host__ __device__ static constexpr auto
     MakeDefaultBlock2CTileMap(const CGridDesc_M_N& c_grid_desc_m_n)
@@ -479,6 +497,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                const DataType* __restrict__ p_b_grid,
                                const DataType* __restrict__ p_b1_grid,
                                const DataType* __restrict__ p_c_grid,
+                               const FloatLSE* __restrict__ p_lse_grid,
                                const DataType* __restrict__ p_ygrad_grid,
                                DataType* __restrict__ p_qgrad_grid,
                                DataType* __restrict__ p_kgrad_grid,
@@ -494,6 +513,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                const B1GridDesc_BK0_N_BK1& b1_grid_desc_bk0_n_bk1,
                                const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
                                    c_grid_desc_mblock_mperblock_nblock_nperblock,
+                               const LSEGridDesc_M& lse_grid_desc_m,
                                const VGradGridDescriptor_N_O& vgrad_grid_desc_n_o,
                                const YGradGridDesc_M0_O_M1& ygrad_grid_desc_m0_o_m1,
                                const Block2CTileMap& block_2_ctile_map,
@@ -507,6 +527,8 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             p_b1_grid, b1_grid_desc_bk0_n_bk1.GetElementSpaceSize());
         const auto c_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_c_grid, c_grid_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize());
+        auto lse_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
+            p_lse_grid, lse_grid_desc_m.GetElementSpaceSize());
         const auto ygrad_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
             p_ygrad_grid, ygrad_grid_desc_m0_o_m1.GetElementSpaceSize());
         auto vgrad_grid_buf = make_dynamic_buffer<AddressSpaceEnum::Global>(
@@ -859,6 +881,35 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         running_max     = NumericLimits<FloatGemmAcc>::Lowest();
         running_max_new = NumericLimits<FloatGemmAcc>::Lowest();
 
+        auto lse_grid_desc_mblock_mrepeat_mwave_mperxdl =
+            MakeLSEGridDescriptor_MBlock_MRepeat_NWave_MPerXdl(lse_grid_desc_m);
+
+        constexpr auto lse_thread_desc_mblock_mrepeat_mwave_mperxdl =
+            make_naive_tensor_descriptor_packed(make_tuple(I1, m0, m1, m2));
+
+        auto lse_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatLSE>(
+            lse_thread_desc_mblock_mrepeat_mwave_mperxdl.GetElementSpaceSize());
+
+        auto acc0_thread_origin = blockwise_gemm.CalculateCThreadOriginDataIndex8D(
+            Number<0>{}, Number<0>{}, Number<0>{}, Number<0>{});
+
+        auto lse_thread_copy_global_to_vgpr =
+            ThreadwiseTensorSliceTransfer_v2<FloatLSE,
+                                             FloatLSE,
+                                             decltype(lse_grid_desc_mblock_mrepeat_mwave_mperxdl),
+                                             decltype(lse_thread_desc_mblock_mrepeat_mwave_mperxdl),
+                                             Sequence<1, m0, m1, m2>,
+                                             Sequence<0, 1, 2, 3>,
+                                             3,
+                                             m2,
+                                             1,
+                                             false>{
+                lse_grid_desc_mblock_mrepeat_mwave_mperxdl,
+                make_multi_index(block_work_idx[I0],       // mblock
+                                 acc0_thread_origin[I0],   // mrepeat
+                                 acc0_thread_origin[I2],   // mwave
+                                 acc0_thread_origin[I4])}; // mperxdl
+
         //
         // dV
         //
@@ -1173,6 +1224,12 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 #endif
         constexpr index_t num_vgrad_gemm_loop = MPerBlock / VGradGemmTile_N_O_M::Sum_M;
 
+        lse_thread_copy_global_to_vgpr.Run(lse_grid_desc_mblock_mrepeat_mwave_mperxdl,
+                                            lse_grid_buf,
+                                            lse_thread_desc_mblock_mrepeat_mwave_mperxdl,
+                                            make_tuple(I0, I0, I0, I0),
+                                            lse_thread_buf);
+
         // gemm1 K loop
         index_t gemm1_k_block_outer_index = 0;
         do
@@ -1272,8 +1329,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 #endif
 
             // softmax
-            // TODO ANT: run with precalculated stat
-            blockwise_softmax.RunWithPreCalcStats(acc_thread_buf);
+            blockwise_softmax.RunWithPreCalcStats(acc_thread_buf, lse_thread_buf);
 
 #if 0
             if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)

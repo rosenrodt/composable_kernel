@@ -26,6 +26,7 @@ namespace device {
 
 template <typename GridwiseGemm,
           typename DataType,
+          typename LSEDataType,
           typename AElementwiseOperation,
           typename BElementwiseOperation,
           typename AccElementwiseOperation,
@@ -35,6 +36,7 @@ template <typename GridwiseGemm,
           typename BGridDesc_BK0_N_BK1,
           typename B1GridDesc_BK0_N_BK1,
           typename CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock,
+          typename LSEGridDescriptor_M,
           typename VGradGridDescriptor_N_O,
           typename YGradGridDesc_M0_O_M1,
           typename Block2CTileMap,
@@ -50,6 +52,7 @@ __global__ void
             const DataType* __restrict__ p_b_grid,
             const DataType* __restrict__ p_b1_grid,
             const DataType* __restrict__ p_c_grid,
+            const LSEDataType* __restrict__ p_lse_grid,
             const DataType* __restrict__ p_ygrad_grid,
             DataType* __restrict__ p_qgrad_grid,
             DataType* __restrict__ p_kgrad_grid,
@@ -64,6 +67,7 @@ __global__ void
             const B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1,
             const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock
                 c_grid_desc_mblock_mperblock_nblock_nperblock,
+            const LSEGridDescriptor_M lse_grid_desc_m,
             // const QGradGridDescriptor_M_K qgrad_grid_desc_m_k, // TODO ANT: add dQ/dK args
             // const KGradGridDescriptor_N_K kgrad_grid_desc_n_k,
             const VGradGridDescriptor_N_O vgrad_grid_desc_n_o,
@@ -89,11 +93,14 @@ __global__ void
         static_cast<long_index_t>(compute_base_ptr_of_batch.GetB1BasePtr(g_idx)));
     const long_index_t c_batch_offset = __builtin_amdgcn_readfirstlane(
         static_cast<long_index_t>(compute_base_ptr_of_batch.GetCBasePtr(g_idx)));
+    const long_index_t lse_batch_offset = __builtin_amdgcn_readfirstlane(
+        static_cast<long_index_t>(compute_base_ptr_of_batch.GetLSEBasePtr(g_idx)));
 
     GridwiseGemm::template Run<HasMainKBlockLoop>(p_a_grid + a_batch_offset,
                                                   p_b_grid + b_batch_offset,
                                                   p_b1_grid + b1_batch_offset,
                                                   p_c_grid + c_batch_offset,
+                                                  p_lse_grid + lse_batch_offset,
                                                   p_ygrad_grid + c_batch_offset,
                                                   p_qgrad_grid + a_batch_offset,
                                                   p_kgrad_grid + b_batch_offset,
@@ -108,6 +115,7 @@ __global__ void
                                                   b_grid_desc_bk0_n_bk1,
                                                   b1_grid_desc_bk0_n_bk1,
                                                   c_grid_desc_mblock_mperblock_nblock_nperblock,
+                                                  lse_grid_desc_m,
                                                   vgrad_grid_desc_n_o,
                                                   ygrad_grid_desc_m0_o_m1,
                                                   block_2_ctile_map,
@@ -142,6 +150,7 @@ template <index_t NumDimG,
           index_t NumDimK,
           index_t NumDimO, // NumDimGemm1N
           typename DataType,
+          typename LSEDataType,
           typename Acc0BiasDataType,
           typename Acc1BiasDataType,
           typename GemmAccDataType,
@@ -421,10 +430,36 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         return Transform::MakeCGridDescriptor_M_N(k_gs_ns_ks_lengths_vec, k_gs_ns_ks_strides_vec);
     }
 
+    static auto MakeLSEGridDescriptor_M(index_t MRaw)
+    {
+        const auto lse_grid_desc_mraw = make_naive_tensor_descriptor_packed(make_tuple(MRaw));
+
+        const auto M    = math::integer_divide_ceil(MRaw, MPerBlock) * MPerBlock;
+        const auto MPad = M - MRaw;
+
+        if constexpr(GemmSpec == GemmSpecialization::MPadding ||
+                     GemmSpec == GemmSpecialization::MNPadding ||
+                     GemmSpec == GemmSpecialization::MKPadding ||
+                     GemmSpec == GemmSpecialization::MNKPadding)
+        {
+            // pad M
+            return transform_tensor_descriptor(lse_grid_desc_mraw,
+                                               make_tuple(make_right_pad_transform(MRaw, MPad)),
+                                               make_tuple(Sequence<0>{}),
+                                               make_tuple(Sequence<0>{}));
+        }
+        else
+        {
+            // not pad M
+            return lse_grid_desc_mraw;
+        }
+    }
+
     using AGridDesc_AK0_M_AK1  = decltype(MakeAGridDescriptor_AK0_M_AK1({}, {}));
     using BGridDesc_BK0_N_BK1  = decltype(MakeBGridDescriptor_BK0_N_BK1({}, {}));
     using B1GridDesc_BK0_N_BK1 = decltype(MakeB1GridDescriptor_BK0_N_BK1({}, {}));
     using CGridDesc_M_N        = decltype(Transform::MakeCGridDescriptor_M_N({}, {}));
+    using LSEGridDesc_M        = decltype(MakeLSEGridDescriptor_M(1));
     using AGridDesc_G_M_K      = decltype(Transform::MakeAGridDescriptor_G_M_K({}, {}));
     using BGridDesc_G_N_K      = decltype(Transform::MakeB0GridDescriptor_G_N_K({}, {}));
     using B1GridDesc_G_N_K     = decltype(Transform::MakeB1GridDescriptor_G_N_K({}, {}));
@@ -452,11 +487,13 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         ComputeBasePtrOfStridedBatch(const AGridDesc_G_M_K& a_grid_desc_g_m_k,
                                      const BGridDesc_G_N_K& b_grid_desc_g_n_k,
                                      const B1GridDesc_G_N_K& b1_grid_desc_g_n_k,
-                                     const CGridDesc_G_M_N& c_grid_desc_g_m_n)
+                                     const CGridDesc_G_M_N& c_grid_desc_g_m_n,
+                                     index_t BatchStrideLSE)
             : a_grid_desc_g_m_k_(a_grid_desc_g_m_k),
               b_grid_desc_g_n_k_(b_grid_desc_g_n_k),
               b1_grid_desc_g_n_k_(b1_grid_desc_g_n_k),
-              c_grid_desc_g_m_n_(c_grid_desc_g_m_n)
+              c_grid_desc_g_m_n_(c_grid_desc_g_m_n),
+              BatchStrideLSE_(BatchStrideLSE)
         {
         }
 
@@ -480,16 +517,23 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             return c_grid_desc_g_m_n_.CalculateOffset(make_multi_index(g_idx, 0, 0));
         }
 
+        __host__ __device__ constexpr long_index_t GetLSEBasePtr(index_t g_idx) const
+        {
+            return g_idx * static_cast<long_index_t>(BatchStrideLSE_);
+        }
+
         private:
         AGridDesc_G_M_K a_grid_desc_g_m_k_;
         BGridDesc_G_N_K b_grid_desc_g_n_k_;
         B1GridDesc_G_N_K b1_grid_desc_g_n_k_;
         CGridDesc_G_M_N c_grid_desc_g_m_n_;
+        index_t BatchStrideLSE_;
     };
 
     // GridwiseGemm
     using GridwiseGemm = GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle<
         DataType, // TODO: distinguish A/B datatype
+        LSEDataType,
         GemmAccDataType,
         CShuffleDataType,
         AElementwiseOperation,
@@ -502,6 +546,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         BGridDesc_BK0_N_BK1,
         B1GridDesc_BK0_N_BK1,
         CGridDesc_M_N,
+        LSEGridDesc_M,
         NumGemmKPrefetchStage,
         BlockSize,
         MPerBlock,
@@ -558,6 +603,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             const DataType* p_b_grid,
             const DataType* p_b1_grid,
             const DataType* p_c_grid, // for dS
+            const LSEDataType* p_lse_grid,
             const DataType* p_ygrad_grid,
             DataType* p_qgrad_grid,
             DataType* p_kgrad_grid,
@@ -572,6 +618,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
             const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
             const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
             const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
+            const std::vector<index_t>& lse_gs_ms_lengths,
             const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_lengths,
             const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_strides,
             const std::array<std::vector<ck::index_t>, NumAcc1Bias>
@@ -587,6 +634,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
               p_b_grid_{p_b_grid},
               p_b1_grid_{p_b1_grid},
               p_c_grid_{p_c_grid},
+              p_lse_grid_{p_lse_grid},
               p_ygrad_grid_{p_ygrad_grid},
               p_qgrad_grid_{p_qgrad_grid},
               p_kgrad_grid_{p_kgrad_grid},
@@ -599,6 +647,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                   b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
               c_grid_desc_m_n_{Transform::MakeCGridDescriptor_M_N(c_gs_ms_gemm1ns_lengths,
                                                                   c_gs_ms_gemm1ns_strides)},
+              lse_grid_desc_m_{DeviceOp::MakeLSEGridDescriptor_M(lse_gs_ms_lengths[NumDimG])},
               // dV = P^T * dY
               vgrad_grid_desc_n_o_{DeviceOp::MakeVGradGridDescriptor_N_O(
                   b1_gs_gemm1ns_gemm1ks_lengths, b1_gs_gemm1ns_gemm1ks_strides)},
@@ -636,7 +685,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                     c_gs_ms_gemm1ns_strides[NumDimG + NumDimM + NumDimO - 1]},
               batch_count_{c_grid_desc_g_m_n_.GetLength(I0)},
               compute_base_ptr_of_batch_{
-                  a_grid_desc_g_m_k_, b_grid_desc_g_n_k_, b1_grid_desc_g_n_k_, c_grid_desc_g_m_n_}
+                  a_grid_desc_g_m_k_, b_grid_desc_g_n_k_, b1_grid_desc_g_n_k_, c_grid_desc_g_m_n_, type_convert<index_t>(lse_grid_desc_m_.GetElementSpaceSize())}
         {
             // TODO ANT: implement bias addition
             ignore = p_acc0_biases;
@@ -688,6 +737,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const DataType* p_b_grid_;
         const DataType* p_b1_grid_;
         const DataType* p_c_grid_;
+        const LSEDataType* p_lse_grid_;
         const DataType* p_ygrad_grid_;
         DataType* p_vgrad_grid_;
         DataType* p_qgrad_grid_;
@@ -698,6 +748,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         BGridDesc_BK0_N_BK1 b_grid_desc_bk0_n_bk1_;
         B1GridDesc_BK0_N_BK1 b1_grid_desc_bk0_n_bk1_;
         CGridDesc_M_N c_grid_desc_m_n_;
+        LSEGridDesc_M lse_grid_desc_m_;
         AGridDesc_G_M_K a_grid_desc_g_m_k_;
         BGridDesc_G_N_K b_grid_desc_g_n_k_;
         B1GridDesc_G_N_K b1_grid_desc_g_n_k_;
@@ -757,6 +808,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                 const auto kernel = kernel_batched_gemm_softmax_gemm_xdl_cshuffle_v1<
                     GridwiseGemm,
                     DataType,
+                    LSEDataType,
                     AElementwiseOperation,
                     BElementwiseOperation,
                     AccElementwiseOperation,
@@ -766,6 +818,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                     DeviceOp::BGridDesc_BK0_N_BK1,
                     DeviceOp::B1GridDesc_BK0_N_BK1,
                     typename GridwiseGemm::CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock,
+                    DeviceOp::LSEGridDesc_M,
                     DeviceOp::VGradGridDesc_N_O,
                     DeviceOp::YGradGridDesc_M0_O_M1,
                     typename GridwiseGemm::DefaultBlock2CTileMap,
@@ -782,6 +835,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                               arg.p_b_grid_,
                                               arg.p_b1_grid_,
                                               arg.p_c_grid_,
+                                              arg.p_lse_grid_,
                                               arg.p_ygrad_grid_,
                                               arg.p_qgrad_grid_,
                                               arg.p_kgrad_grid_,
@@ -795,6 +849,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                               arg.b_grid_desc_bk0_n_bk1_,
                                               arg.b1_grid_desc_bk0_n_bk1_,
                                               arg.c_grid_desc_mblock_mperblock_nblock_nperblock_,
+                                              arg.lse_grid_desc_m_,
                                               arg.vgrad_grid_desc_n_o_,
                                               arg.ygrad_grid_desc_m0_o_m1_,
                                               arg.block_2_ctile_map_,
@@ -913,6 +968,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const DataType* p_b,
         const DataType* p_b1,
         const DataType* p_c,
+        const LSEDataType* p_lse,
         const DataType* p_ygrad_grid,
         DataType* p_qgrad_grid,
         DataType* p_kgrad_grid,
@@ -927,6 +983,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
         const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
         const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
+        const std::vector<index_t>& lse_gs_ms_lengths,
         const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_lengths,
         const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_strides,
         const std::array<std::vector<ck::index_t>, NumAcc1Bias>
@@ -943,6 +1000,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                         p_b,
                         p_b1,
                         p_c,
+                        p_lse,
                         p_ygrad_grid,
                         p_qgrad_grid,
                         p_kgrad_grid,
@@ -957,6 +1015,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                         b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
                         c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
                         c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
+                        lse_gs_ms_lengths,
                         acc0_biases_gs_ms_ns_lengths,
                         acc0_biases_gs_ms_ns_strides,
                         acc1_biases_gs_ms_gemm1ns_lengths, // acc1_biases_gs_ms_os_lengths
@@ -977,6 +1036,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const void* p_b,
         const void* p_b1,
         const void* p_c,
+        const void* p_lse,
         const void* p_ygrad_grid,
         void* p_qgrad_grid,
         void* p_kgrad_grid,
@@ -991,6 +1051,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
         const std::vector<index_t>& b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
         const std::vector<index_t>& c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
         const std::vector<index_t>& c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
+        const std::vector<index_t>& lse_gs_ms_lengths,
         const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_lengths,
         const std::array<std::vector<ck::index_t>, NumAcc0Bias> acc0_biases_gs_ms_ns_strides,
         const std::array<std::vector<ck::index_t>, NumAcc1Bias>
@@ -1007,6 +1068,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                           static_cast<const DataType*>(p_b),
                                           static_cast<const DataType*>(p_b1),
                                           static_cast<const DataType*>(p_c),
+                                          static_cast<const LSEDataType*>(p_lse),
                                           static_cast<const DataType*>(p_ygrad_grid),
                                           static_cast<DataType*>(p_qgrad_grid),
                                           static_cast<DataType*>(p_kgrad_grid),
@@ -1021,6 +1083,7 @@ struct DeviceBatchedGemmSoftmaxGemmPermute_Xdl_CShuffle
                                           b1_gs_gemm1ns_gemm1ks_strides, // b1_gs_os_ns_strides
                                           c_gs_ms_gemm1ns_lengths,       // c_gs_ms_os_lengths
                                           c_gs_ms_gemm1ns_strides,       // c_gs_ms_os_strides
+                                          lse_gs_ms_lengths,
                                           acc0_biases_gs_ms_ns_lengths,
                                           acc0_biases_gs_ms_ns_strides,
                                           acc1_biases_gs_ms_gemm1ns_lengths,
