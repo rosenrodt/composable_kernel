@@ -475,7 +475,7 @@ int run(int argc, char* argv[])
         Tensor<DataType> ygrad_dot_y_g_m({BatchCount, M});
 
         ygrad_gs_ms_os.ForEach([&](auto& self, auto idx) {
-            ygrad_g_m_o(idx[0] * G1 * idx[1], idx[2], idx[3]) = self(idx);
+            ygrad_g_m_o(idx[0] * G1 + idx[1], idx[2], idx[3]) = self(idx);
         });
 
         if(PRINT_HOST)
