@@ -293,13 +293,14 @@ struct GridwiseBatchedGemmSoftmaxGemmTrain_Xdl_CShuffle
     __host__ __device__ static constexpr auto
     MakeLSEGridDescriptor_MBlock_MRepeat_NWave_MPerXdl(const LSEGridDesc_M& lse_grid_desc_m)
     {
-        const index_t M      = lse_grid_desc_m.GetLength(I0);
-        const index_t MBlock = M / MPerBlock;
-        constexpr index_t MWave  = MPerBlock / (MXdlPerWave * MPerXdl);
+        const index_t M         = lse_grid_desc_m.GetLength(I0);
+        const index_t MBlock    = M / MPerBlock;
+        constexpr index_t MWave = MPerBlock / (MXdlPerWave * MPerXdl);
 
         const auto lse_grid_desc_mblock_mrepeat_mwave_mperxdl = transform_tensor_descriptor(
             lse_grid_desc_m,
-            make_tuple(make_unmerge_transform(make_tuple(MBlock, Number<MXdlPerWave>{}, MWave, Number<MPerXdl>{}))),
+            make_tuple(make_unmerge_transform(
+                make_tuple(MBlock, Number<MXdlPerWave>{}, MWave, Number<MPerXdl>{}))),
             make_tuple(Sequence<0>{}),
             make_tuple(Sequence<0, 1, 2, 3>{}));
 
@@ -373,8 +374,7 @@ struct GridwiseBatchedGemmSoftmaxGemmTrain_Xdl_CShuffle
                                const B1GridDesc_BK0_N_BK1& b1_grid_desc_bk0_n_bk1,
                                const CGridDescriptor_MBlock_MPerBlock_NBlock_NPerBlock&
                                    c_grid_desc_mblock_mperblock_nblock_nperblock,
-                               const LSEGridDesc_M&
-                                   lse_grid_desc_m,
+                               const LSEGridDesc_M& lse_grid_desc_m,
                                const Block2CTileMap& block_2_ctile_map,
                                const C0MatrixMask& c0_matrix_mask)
     {
@@ -739,36 +739,35 @@ struct GridwiseBatchedGemmSoftmaxGemmTrain_Xdl_CShuffle
         running_max_new = NumericLimits<FloatGemmAcc>::Lowest();
 
         auto lse_grid_desc_mblock_mrepeat_mwave_mperxdl =
-                MakeLSEGridDescriptor_MBlock_MRepeat_NWave_MPerXdl(lse_grid_desc_m);
+            MakeLSEGridDescriptor_MBlock_MRepeat_NWave_MPerXdl(lse_grid_desc_m);
 
         constexpr auto lse_thread_desc_mblock_mrepeat_mwave_mperxdl =
-                make_naive_tensor_descriptor_packed(make_tuple(I1, m0, m1, m2));
+            make_naive_tensor_descriptor_packed(make_tuple(I1, m0, m1, m2));
 
-        auto lse_thread_buf =
-                        make_static_buffer<AddressSpaceEnum::Vgpr, FloatLSE>(
-                            lse_thread_desc_mblock_mrepeat_mwave_mperxdl.GetElementSpaceSize());
+        auto lse_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, FloatLSE>(
+            lse_thread_desc_mblock_mrepeat_mwave_mperxdl.GetElementSpaceSize());
 
         auto acc0_thread_origin = blockwise_gemm.CalculateCThreadOriginDataIndex8D(
-                    Number<0>{}, Number<0>{}, Number<0>{}, Number<0>{});
+            Number<0>{}, Number<0>{}, Number<0>{}, Number<0>{});
         auto lse_thread_copy_vgpr_to_global = ThreadwiseTensorSliceTransfer_v1r3<
-                    FloatGemmAcc,
-                    FloatLSE,
-                    decltype(lse_thread_desc_mblock_mrepeat_mwave_mperxdl),
-                    decltype(lse_grid_desc_mblock_mrepeat_mwave_mperxdl),
-                    ck::tensor_operation::element_wise::PassThrough,
-                    Sequence<1, 1, 1, 1>,
-                    Sequence<0, 1, 2, 3>,
-                    3,
-                    1,
-                    InMemoryDataOperationEnum::Set,
-                    1,
-                    false>{lse_grid_desc_mblock_mrepeat_mwave_mperxdl,
-                            make_multi_index(block_work_idx[I0],                  // mblock
-                                             0,                                   // mrepeat
-                                             acc0_thread_origin[I2],              // mwave
-                                             acc0_thread_origin[I4]),             // mperxdl 
-                            ck::tensor_operation::element_wise::PassThrough{}};
-        
+            FloatGemmAcc,
+            FloatLSE,
+            decltype(lse_thread_desc_mblock_mrepeat_mwave_mperxdl),
+            decltype(lse_grid_desc_mblock_mrepeat_mwave_mperxdl),
+            ck::tensor_operation::element_wise::PassThrough,
+            Sequence<1, 1, 1, 1>,
+            Sequence<0, 1, 2, 3>,
+            3,
+            1,
+            InMemoryDataOperationEnum::Set,
+            1,
+            false>{lse_grid_desc_mblock_mrepeat_mwave_mperxdl,
+                   make_multi_index(block_work_idx[I0],      // mblock
+                                    0,                       // mrepeat
+                                    acc0_thread_origin[I2],  // mwave
+                                    acc0_thread_origin[I4]), // mperxdl
+                   ck::tensor_operation::element_wise::PassThrough{}};
+
         // gemm1 K loop
         index_t gemm1_k_block_outer_index = 0;
         do
@@ -979,9 +978,10 @@ struct GridwiseBatchedGemmSoftmaxGemmTrain_Xdl_CShuffle
 
         // Calculate max + ln(sum) and write out
         static_for<0, MXdlPerWave, 1>{}(
-                            [&](auto I) { lse_thread_buf(I) = running_max(I) + math::log(running_sum(I)); });
+            [&](auto I) { lse_thread_buf(I) = running_max(I) + math::log(running_sum(I)); });
 
-        if (get_warp_local_1d_id() < AccM2) {
+        if(get_warp_local_1d_id() < AccM2)
+        {
             static_for<0, MXdlPerWave, 1>{}([&](auto I) {
                 // copy from VGPR to Global
                 lse_thread_copy_vgpr_to_global.Run(lse_thread_desc_mblock_mrepeat_mwave_mperxdl,
@@ -991,8 +991,7 @@ struct GridwiseBatchedGemmSoftmaxGemmTrain_Xdl_CShuffle
                                                    lse_grid_buf);
 
                 lse_thread_copy_vgpr_to_global.MoveDstSliceWindow(
-                                        lse_grid_desc_mblock_mrepeat_mwave_mperxdl,
-                                        make_multi_index(0, 1, 0, 0)); 
+                    lse_grid_desc_mblock_mrepeat_mwave_mperxdl, make_multi_index(0, 1, 0, 0));
             });
         }
 
