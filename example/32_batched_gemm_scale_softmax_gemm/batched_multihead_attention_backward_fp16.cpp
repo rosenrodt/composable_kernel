@@ -248,8 +248,6 @@ int run(int argc, char* argv[])
     bool input_permute  = false;
     bool output_permute = false;
 
-    const ck::index_t BatchCount = G0 * G1;
-
     if(argc == 1)
     {
         // use default case
@@ -288,6 +286,8 @@ int run(int argc, char* argv[])
         printf("arg11 to 12: input / output permute\n");
         exit(0);
     }
+
+    const ck::index_t BatchCount = G0 * G1;
 
     std::vector<ck::index_t> q_gs_ms_ks_lengths{G0, G1, M, K};
     std::vector<ck::index_t> q_gs_ms_ks_strides =
@@ -605,7 +605,10 @@ int run(int argc, char* argv[])
                                      kgrad_gs_ns_ks_host_result.mData);
         std::cout << "Checking vgrad:\n";
         pass &= ck::utils::check_err(vgrad_gs_os_ns_device_result.mData,
-                                     vgrad_gs_os_ns_host_result.mData);
+                                     vgrad_gs_os_ns_host_result.mData,
+                                     "error",
+                                     1e-2,
+                                     1e-2);
     }
 
     return pass ? 0 : 1;
