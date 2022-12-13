@@ -1408,7 +1408,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         });
         block_sync_lds();
 
-#if 1
+#if 0
         if(hipThreadIdx_x == 0 && hipBlockIdx_x == 0) printf("lds after accum\n");
         if(hipBlockIdx_x == 0)
         {
@@ -1427,13 +1427,10 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 #if 0
         if(hipBlockIdx_x < 4 && hipThreadIdx_x % 32 < 4)
         {
-            printf("bid %zd tid %zd, y_m0_m1_o0_o1 = %d, %d, %d, %d\n",
+            printf("bid %zd tid %zd, y_dot_ygrad_thread_buf[0] = %f\n",
                    hipBlockIdx_x,
                    hipThreadIdx_x,
-                   y_thread_data_on_grid_idx[I0],
-                   y_thread_data_on_grid_idx[I1],
-                   y_thread_data_on_grid_idx[I2],
-                   y_thread_data_on_grid_idx[I3]);
+                   y_dot_ygrad_thread_buf[I0]);
         }
 #endif
 
