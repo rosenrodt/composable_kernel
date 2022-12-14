@@ -104,7 +104,7 @@ using DeviceGemmInstance =
         TensorSpecY,
         1,
         256,
-        256,         // MPerBlock
+        128,         // MPerBlock
         128,         // NPerBlock
         32,          // KPerBlock
         64,          // Gemm1NPerBlock
@@ -114,7 +114,7 @@ using DeviceGemmInstance =
         2,           // B1K1
         32,          // MPerXDL
         32,          // NPerXDL
-        2,           // MXdlPerWave
+        1,           // MXdlPerWave
         4,           // NXdlPerWave
         2,           // Gemm1NXdlPerWave
         S<4, 64, 1>, // ABlockTransfer
@@ -382,6 +382,12 @@ int run(int argc, char* argv[])
         v_gs_os_ns.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
         ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_Sequential<3>{}); // dy[g0, g1, m, o]
         break;
+    case 7:
+        q_gs_ms_ks.GenerateTensorValue(GeneratorTensor_1<DataType>{1});
+        k_gs_ns_ks.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
+        v_gs_os_ns.GenerateTensorValue(GeneratorTensor_1<DataType>{1});
+        ygrad_gs_ms_os.GenerateTensorValue(GeneratorTensor_Sequential<3>{}); // dy[g0, g1, m, o]
+        break;
     default:
         q_gs_ms_ks.GenerateTensorValue(GeneratorTensor_1<DataType>{1});
         k_gs_ns_ks.GenerateTensorValue(GeneratorTensor_Diagonal<DataType>{});
@@ -489,6 +495,7 @@ int run(int argc, char* argv[])
     std::cout << "Perf: " << ave_time << " ms, " << tflops << " TFlops, " << gb_per_sec << " GB/s, "
               << gemm.GetTypeString() << std::endl;
 
+    hipDeviceSynchronize();
     bool pass = true;
     if(do_verification)
     {
@@ -504,7 +511,7 @@ int run(int argc, char* argv[])
             ygrad_g_m_o(idx[0] * G1 + idx[1], idx[2], idx[3]) = self(idx);
         });
 
-        if(PRINT_HOST)
+        if(true)
         {
             std::cout << "q_g_m_k ref:\n" << q_g_m_k;
             std::cout << "k_g_n_k ref:\n" << k_g_n_k;
