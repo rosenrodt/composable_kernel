@@ -68,13 +68,7 @@ struct GridwiseGemmPipeline_v1<1>
 
         a_blockwise_copy.RunWrite(a_block_desc, a_block_buf);
         b_blockwise_copy.RunWrite(b_block_desc, b_block_buf);
-#if 1
-        if(hipThreadIdx_x == 0 && hipBlockIdx_x == 0) printf("lds 1st block\n");
-        if(hipBlockIdx_x == 0)
-        {
-            debug::print_shared(a_block_buf.p_data_, (index_t)a_block_desc.GetElementSpaceSize());
-        }
-#endif
+
         // main body
         if constexpr(HasMainLoop)
         {

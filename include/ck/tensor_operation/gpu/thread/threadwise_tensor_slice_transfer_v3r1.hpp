@@ -207,11 +207,6 @@ struct ThreadwiseTensorSliceTransfer_v3r1
             auto src_vector_container = src_vector_type{
                 src_buf.template Get<src_vector_t>(src_coord_.GetOffset(), is_src_valid)};
 
-            // if(hipThreadIdx_x % 32 < 4 && hipBlockIdx_x == 0)
-            // {
-            //     printf("tid %zd, offset %d, valid %d\n", hipThreadIdx_x, src_coord_.GetOffset(), (int)is_src_valid);
-            // }
-
             // apply SrcElementwiseOperation on src_vector_container
             static_for<0, SrcScalarPerVector, 1>{}([&](auto i) {
                 SrcData src_v;
@@ -220,15 +215,6 @@ struct ThreadwiseTensorSliceTransfer_v3r1
 
                 src_vector_container.template AsType<SrcData>()(i) = src_v;
             });
-
-            // if(hipThreadIdx_x % 32 < 4 && hipBlockIdx_x == 0)
-            // {
-            //     printf("tid %zd, offset %d, vec[0:1] %f %f\n",
-            //            hipThreadIdx_x,
-            //            src_coord_.GetOffset(),
-            //            (float)src_vector_container.template AsType<SrcData>()[I0],
-            //            (float)src_vector_container.template AsType<SrcData>()[Number<1>{}]);
-            // }
 
             // copy data from src_vector_container into src_thread_scratch_
             src_thread_scratch_tuple_(thread_scratch_id)

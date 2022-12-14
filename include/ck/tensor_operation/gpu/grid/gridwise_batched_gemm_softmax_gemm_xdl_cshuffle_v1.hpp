@@ -1353,7 +1353,6 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             PGradGemmTile_M_N_O::MakeVGridDesc_O0_N_O1(v_grid_desc_n0_o_n1);
 
         // A matrix blockwise copy
-        // TODO ANT: check why we get all 0s from blockwise copy
         auto pgrad_gemm_tile_ygrad_blockwise_copy =
             ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
                                                 tensor_operation::element_wise::PassThrough,
@@ -1416,7 +1415,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 tensor_operation::element_wise::PassThrough{});
 
         auto pgrad_blockwise_gemm = typename PGradGemmTile_M_N_O::BlockwiseGemm{};
-        auto& pgrad_acc_thread_buf = pgrad_blockwise_gemm.GetCThreadBuffer();
+        auto pgrad_acc_thread_buf = pgrad_blockwise_gemm.GetCThreadBuffer();
         const auto pgrad_gemm_tile_ygrad_block_reset_copy_step =
             make_multi_index(-ygrad_grid_desc_o0_m_o1.GetLength(I0), 0, 0);
         const auto pgrad_gemm_tile_v_block_reset_copy_step =
@@ -1558,7 +1557,6 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 continue;
             }
             // gemm0
-#if 0
             gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(a_grid_desc_ak0_m_ak1,
                                                                    a_block_desc_ak0_m_ak1,
                                                                    a_blockwise_copy,
@@ -1574,7 +1572,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                                    blockwise_gemm,
                                                                    acc_thread_buf,
                                                                    num_k_block_main_loop);
-#endif
+
             // do MNK padding or upper triangular masking
             if constexpr(MaskOutUpperTriangle || PadN)
             {
@@ -1669,7 +1667,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             static_assert(sfc_p_m0_n0_m1_n1_m2_n2.GetNumOfAccess() == num_vgrad_gemm_loop, "");
 
             vgrad_acc_thread_buf.Clear();
-#if 0
+
             // TODO ANT: single buffer prefetch pipeline
             static_for<0, num_vgrad_gemm_loop, 1>{}([&](auto vgrad_gemm_loop_idx) { // gemm dV
                 // load VGrad Gemm B
@@ -1747,15 +1745,28 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 }
 #endif
             }); // end gemm dV
+
             // atomic_add dV
             vgrad_thread_copy_vgpr_to_global.Run(vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  make_tuple(I0, I0, I0, I0, I0, I0, I0, I0),
                                                  vgrad_acc_thread_buf,
                                                  vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  vgrad_grid_buf);
-#endif
 
             // gemm dP
+            pgrad_acc_thread_buf.Clear();
+#if 0
+            if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
+            {
+                printf("j loop idx %d, tid %zd, clear dP[0:3] = %f, %f, %f, %f\n",
+                       gemm1_k_block_outer_index,
+                       hipThreadIdx_x,
+                       pgrad_acc_thread_buf[I0],
+                       pgrad_acc_thread_buf[I1],
+                       pgrad_acc_thread_buf[I2],
+                       pgrad_acc_thread_buf[I3]);
+            }
+#endif
             block_sync_lds();
             // assume size K == size O so has main block loop
             gridwise_gemm_pipeline.template Run<HasMainKBlockLoop>(
