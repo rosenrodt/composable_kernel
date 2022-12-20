@@ -446,6 +446,159 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     using DefaultBlock2CTileMap =
         remove_cvref_t<decltype(MakeDefaultBlock2CTileMap(CGridDesc_M_N{}))>;
 
+    struct SharedMemTrait
+    {
+        // LDS allocation for A and B: be careful of alignment
+        static constexpr auto a_block_desc_ak0_m_ak1 =
+            GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
+        static constexpr auto b_block_desc_bk0_n_bk1 =
+            GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
+        static constexpr auto b1_block_desc_bk0_n_bk1 =
+            GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
+        static constexpr auto p_block_desc_m0_n_m1 =
+            VGradGemmTile_N_O_M::GetPBlockDescriptor_M0_N_M1();
+        static constexpr auto ygrad_block_desc_m0_o_m1 =
+            VGradGemmTile_N_O_M::GetYGradBlockDescriptor_M0_O_M1();
+
+        static constexpr auto max_lds_align = Number<16 / sizeof(DataType)>{};
+
+        static constexpr auto a_block_space_size_aligned = math::integer_least_multiple(
+            a_block_desc_ak0_m_ak1.GetElementSpaceSize(), max_lds_align);
+        static constexpr auto b_block_space_size_aligned = math::integer_least_multiple(
+            b_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
+        static constexpr auto b1_block_space_size_aligned = math::integer_least_multiple(
+            b1_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
+        static constexpr auto p_block_space_size_aligned =
+            math::integer_least_multiple(p_block_desc_m0_n_m1.GetElementSpaceSize(), max_lds_align);
+        static constexpr auto ygrad_block_space_size_aligned = math::integer_least_multiple(
+            ygrad_block_desc_m0_o_m1.GetElementSpaceSize(), max_lds_align);
+
+        static constexpr auto a_block_space_offset     = 0;
+        static constexpr auto b_block_space_offset     = a_block_space_size_aligned.value;
+        static constexpr auto b1_block_space_offset    = 0;
+        static constexpr auto p_block_space_offset     = 0;
+        static constexpr auto ygrad_block_space_offset = p_block_space_size_aligned.value;
+
+        // LDS allocation for reduction
+        static constexpr index_t reduction_space_size_aligned =
+            math::integer_least_multiple(BlockSize, max_lds_align);
+
+        static constexpr auto reduction_space_offset = 0;
+
+        // LDS allocation for C shuffle in LDS
+        static constexpr auto c_shuffle_block_desc_mblock_mperblock_nblock_nperblock =
+            GetCShuffleBlockDescriptor_MBlock_MPerBlock_NBlock_NPerBlock();
+        static constexpr auto c_block_space_size =
+            c_shuffle_block_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize();
+    };
+
+    // P / dP Gemm (type 1 rcr)
+    struct Gemm0
+    {
+        private:
+        static constexpr auto a_block_desc = GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
+        static constexpr auto b_block_desc = GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
+
+        public:
+        __host__ __device__ Gemm0(const SharedMemTrait& smem_traits, void* p_shared)
+            : a_block_buf{make_dynamic_buffer<AddressSpaceEnum::Lds>(
+                  static_cast<DataType*>(p_shared) + smem_traits.a_block_space_offset,
+                  a_block_desc.GetElementSpaceSize())},
+              b_block_buf{make_dynamic_buffer<AddressSpaceEnum::Lds>(
+                  static_cast<DataType*>(p_shared) + smem_traits.b_block_space_offset,
+                  b_block_desc.GetElementSpaceSize())}
+        {
+        }
+
+        template <typename GridDesc_K0_M_K1>
+        using ABlockwiseCopy = ThreadGroupTensorSliceTransfer_v4r1<
+            ThisThreadBlock,
+            AElementwiseOperation,
+            tensor_operation::element_wise::PassThrough,
+            InMemoryDataOperationEnum::Set,
+            Sequence<AK0, MPerBlock, AK1>,
+            ABlockTransferThreadClusterLengths_AK0_M_AK1,
+            ABlockTransferThreadClusterArrangeOrder,
+            DataType,
+            DataType,
+            GridDesc_K0_M_K1,
+            decltype(a_block_desc),
+            ABlockTransferSrcAccessOrder,
+            Sequence<1, 0, 2>,
+            ABlockTransferSrcVectorDim,
+            2,
+            ABlockTransferSrcScalarPerVector,
+            ABlockTransferDstScalarPerVector_AK1,
+            1,
+            1,
+            true, // SrcResetCoord
+            true, // DstResetCoord
+            NumGemmKPrefetchStage>;
+
+        template <typename GridDesc_K0_N_K1>
+        using BBlockwiseCopy = ThreadGroupTensorSliceTransfer_v4r1<
+            ThisThreadBlock,
+            BElementwiseOperation,
+            tensor_operation::element_wise::PassThrough,
+            InMemoryDataOperationEnum::Set,
+            Sequence<BK0, NPerBlock, BK1>,
+            BBlockTransferThreadClusterLengths_BK0_N_BK1,
+            BBlockTransferThreadClusterArrangeOrder,
+            DataType,
+            DataType,
+            GridDesc_K0_N_K1,
+            decltype(b_block_desc),
+            BBlockTransferSrcAccessOrder,
+            Sequence<1, 0, 2>,
+            BBlockTransferSrcVectorDim,
+            2,
+            BBlockTransferSrcScalarPerVector,
+            BBlockTransferDstScalarPerVector_BK1,
+            1,
+            1,
+            true, // SrcResetCoord
+            true, // DstResetCoord
+            NumGemmKPrefetchStage>;
+
+        static constexpr index_t KPack = math::max(
+            math::lcm(AK1, BK1), MfmaSelector<DataType, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
+
+        // Blockwise gemm with transposed XDL output
+        using BlockwiseGemm =
+            BlockwiseGemmXdlops_v2<BlockSize,
+                                   DataType,
+                                   FloatGemmAcc,
+                                   decltype(a_block_desc),
+                                   decltype(b_block_desc),
+                                   decltype(MakeGemm0AMmaTileDescriptor_M0_M1_M2_K(
+                                       a_block_desc)),
+                                   decltype(MakeGemm0BMmaTileDescriptor_N0_N1_N2_K(
+                                       b_block_desc)),
+                                   MPerBlock,
+                                   NPerBlock,
+                                   KPerBlock,
+                                   MPerXdl,
+                                   NPerXdl,
+                                   MXdlPerWave,
+                                   NXdlPerWave,
+                                   KPack,
+                                   true>; // TransposeC
+
+        static constexpr auto a_block_slice_copy_step = make_multi_index(KPerBlock / AK1, 0, 0);
+        static constexpr auto b_block_slice_copy_step = make_multi_index(KPerBlock / BK1, 0, 0);
+
+        DynamicBuffer<AddressSpaceEnum::Lds,
+                      DataType,
+                      decltype(a_block_desc.GetElementSpaceSize()),
+                      true>
+            a_block_buf;
+        DynamicBuffer<AddressSpaceEnum::Lds,
+                      DataType,
+                      decltype(b_block_desc.GetElementSpaceSize()),
+                      true>
+            b_block_buf;
+    };
+
     // PGrad Gemm has the same layout as P = Q * K^T Gemm (A row-major B col-major)
     struct PGradGemmTile_M_N_O
     {
@@ -476,6 +629,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             KPack,
             true>;
 
+        // TODO ANT:
         // Should have made all input tensors 2D and transform them into appropriate 3D form in
         // kernel to make things more concise - if we can get the compiler to behave
         template <typename YGradGridDesc_M0_O_M1_>
@@ -597,52 +751,6 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         }
     };
 
-    struct SharedMemTrait
-    {
-        // LDS allocation for A and B: be careful of alignment
-        static constexpr auto a_block_desc_ak0_m_ak1 =
-            GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
-        static constexpr auto b_block_desc_bk0_n_bk1 =
-            GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
-        static constexpr auto b1_block_desc_bk0_n_bk1 =
-            GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
-        static constexpr auto p_block_desc_m0_n_m1 =
-            VGradGemmTile_N_O_M::GetPBlockDescriptor_M0_N_M1();
-        static constexpr auto ygrad_block_desc_m0_o_m1 =
-            VGradGemmTile_N_O_M::GetYGradBlockDescriptor_M0_O_M1();
-
-        static constexpr auto max_lds_align = Number<16 / sizeof(DataType)>{};
-
-        static constexpr auto a_block_space_size_aligned = math::integer_least_multiple(
-            a_block_desc_ak0_m_ak1.GetElementSpaceSize(), max_lds_align);
-        static constexpr auto b_block_space_size_aligned = math::integer_least_multiple(
-            b_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
-        static constexpr auto b1_block_space_size_aligned = math::integer_least_multiple(
-            b1_block_desc_bk0_n_bk1.GetElementSpaceSize(), max_lds_align);
-        static constexpr auto p_block_space_size_aligned =
-            math::integer_least_multiple(p_block_desc_m0_n_m1.GetElementSpaceSize(), max_lds_align);
-        static constexpr auto ygrad_block_space_size_aligned = math::integer_least_multiple(
-            ygrad_block_desc_m0_o_m1.GetElementSpaceSize(), max_lds_align);
-
-        static constexpr auto a_block_space_offset     = 0;
-        static constexpr auto b_block_space_offset     = a_block_space_size_aligned.value;
-        static constexpr auto b1_block_space_offset    = 0;
-        static constexpr auto p_block_space_offset     = 0;
-        static constexpr auto ygrad_block_space_offset = p_block_space_size_aligned.value;
-
-        // LDS allocation for reduction
-        static constexpr index_t reduction_space_size_aligned =
-            math::integer_least_multiple(BlockSize, max_lds_align);
-
-        static constexpr auto reduction_space_offset = 0;
-
-        // LDS allocation for C shuffle in LDS
-        static constexpr auto c_shuffle_block_desc_mblock_mperblock_nblock_nperblock =
-            GetCShuffleBlockDescriptor_MBlock_MPerBlock_NBlock_NPerBlock();
-        static constexpr auto c_block_space_size =
-            c_shuffle_block_desc_mblock_mperblock_nblock_nperblock.GetElementSpaceSize();
-    };
-
     template <bool HasMainKBlockLoop,
               typename Block2CTileMap,
               typename C0MatrixMask,
@@ -710,40 +818,21 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         const index_t gemm1_n_block_data_idx_on_grid =
             __builtin_amdgcn_readfirstlane(block_work_idx[I1] * Gemm1NPerBlock);
 
+        //
+        // set up P / dP Gemm (type 1 rcr)
+        //
+
+        Gemm0 gemm0{SharedMemTrait{}, p_shared};
+
         // A matrix in LDS memory, dst of blockwise copy
         constexpr auto a_block_desc_ak0_m_ak1 = GetABlockDescriptor_AK0PerBlock_MPerBlock_AK1();
 
         // B matrix in LDS memory, dst of blockwise copy
         constexpr auto b_block_desc_bk0_n_bk1 = GetBBlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
-        //
-        // set up Gemm0
-        //
-
         // A matrix blockwise copy
         auto a_blockwise_copy =
-            ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
-                                                AElementwiseOperation,
-                                                tensor_operation::element_wise::PassThrough,
-                                                InMemoryDataOperationEnum::Set,
-                                                Sequence<AK0, MPerBlock, AK1>,
-                                                ABlockTransferThreadClusterLengths_AK0_M_AK1,
-                                                ABlockTransferThreadClusterArrangeOrder,
-                                                DataType,
-                                                DataType,
-                                                decltype(q_grid_desc_k0_m_k1),
-                                                decltype(a_block_desc_ak0_m_ak1),
-                                                ABlockTransferSrcAccessOrder,
-                                                Sequence<1, 0, 2>,
-                                                ABlockTransferSrcVectorDim,
-                                                2,
-                                                ABlockTransferSrcScalarPerVector,
-                                                ABlockTransferDstScalarPerVector_AK1,
-                                                1,
-                                                1,
-                                                true, // SrcResetCoord
-                                                true, // DstResetCoord
-                                                NumGemmKPrefetchStage>(
+            typename Gemm0::template ABlockwiseCopy<decltype(q_grid_desc_k0_m_k1)>(
                 q_grid_desc_k0_m_k1,
                 make_multi_index(0, m_block_data_idx_on_grid, 0),
                 a_element_op,
@@ -753,28 +842,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
         // B matrix blockwise copy
         auto b_blockwise_copy =
-            ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
-                                                BElementwiseOperation,
-                                                tensor_operation::element_wise::PassThrough,
-                                                InMemoryDataOperationEnum::Set,
-                                                Sequence<BK0, NPerBlock, BK1>,
-                                                BBlockTransferThreadClusterLengths_BK0_N_BK1,
-                                                BBlockTransferThreadClusterArrangeOrder,
-                                                DataType,
-                                                DataType,
-                                                decltype(k_grid_desc_k0_n_k1),
-                                                decltype(b_block_desc_bk0_n_bk1),
-                                                BBlockTransferSrcAccessOrder,
-                                                Sequence<1, 0, 2>,
-                                                BBlockTransferSrcVectorDim,
-                                                2,
-                                                BBlockTransferSrcScalarPerVector,
-                                                BBlockTransferDstScalarPerVector_BK1,
-                                                1,
-                                                1,
-                                                true, // SrcResetCoord
-                                                true, // DstResetCoord
-                                                NumGemmKPrefetchStage>(
+            typename Gemm0::template BBlockwiseCopy<decltype(k_grid_desc_k0_n_k1)>(
                 k_grid_desc_k0_n_k1,
                 make_multi_index(0, 0, 0), // will loop over GemmN dimension
                 b_element_op,
@@ -782,47 +850,18 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 make_multi_index(0, 0, 0),
                 tensor_operation::element_wise::PassThrough{});
 
-        // Fused Gemm+Gemm pipeline
-        // for n in N0:
-        //   for k in K0:
-        //     acc[m][n] += A[m][k] * B0[k][n]
-        //   acc1[m][o] += acc[m][n] * B1[n][o]
-
-        // sanity check
-        constexpr index_t KPack = math::max(
-            math::lcm(AK1, BK1), MfmaSelector<DataType, MPerXdl, NPerXdl>::selected_mfma.k_per_blk);
-
-        auto blockwise_gemm = BlockwiseGemmXdlops_v2<
-            BlockSize,
-            DataType,
-            FloatGemmAcc,
-            decltype(a_block_desc_ak0_m_ak1),
-            decltype(b_block_desc_bk0_n_bk1),
-            decltype(MakeGemm0AMmaTileDescriptor_M0_M1_M2_K(a_block_desc_ak0_m_ak1)),
-            decltype(MakeGemm0BMmaTileDescriptor_N0_N1_N2_K(b_block_desc_bk0_n_bk1)),
-            MPerBlock,
-            NPerBlock,
-            KPerBlock,
-            MPerXdl,
-            NPerXdl,
-            MXdlPerWave,
-            NXdlPerWave,
-            KPack,
-            true>{}; // TransposeC
+        auto blockwise_gemm = typename Gemm0::BlockwiseGemm{}; // TransposeC
 
         auto acc_thread_buf = blockwise_gemm.GetCThreadBuffer();
 
         // LDS allocation for A and B: be careful of alignment
-        auto a_block_buf = make_dynamic_buffer<AddressSpaceEnum::Lds>(
-            static_cast<DataType*>(p_shared) + SharedMemTrait::a_block_space_offset,
-            a_block_desc_ak0_m_ak1.GetElementSpaceSize());
+        auto& a_block_buf = gemm0.a_block_buf;
 
-        auto b_block_buf = make_dynamic_buffer<AddressSpaceEnum::Lds>(
-            static_cast<DataType*>(p_shared) + SharedMemTrait::b_block_space_offset,
-            b_block_desc_bk0_n_bk1.GetElementSpaceSize());
+        auto& b_block_buf = gemm0.b_block_buf;
 
-        constexpr auto a_block_slice_copy_step = make_multi_index(KPerBlock / AK1, 0, 0);
-        constexpr auto b_block_slice_copy_step = make_multi_index(KPerBlock / BK1, 0, 0);
+        constexpr auto a_block_slice_copy_step = Gemm0::a_block_slice_copy_step;
+        constexpr auto b_block_slice_copy_step = Gemm0::b_block_slice_copy_step;
+
         const auto a_block_reset_copy_step =
             make_multi_index(-q_grid_desc_k0_m_k1.GetLength(I0), 0, 0);
         const auto b_block_reset_copy_step =
@@ -839,7 +878,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             KPerBlock);
 
         //
-        // set up O / dQ Gemm
+        // set up Y / dQ Gemm (type 2 rrr)
         //
 
         // Acc matrix threadwise copy: AccVGPR to VGPR and downcast to XDL input data type
@@ -889,47 +928,47 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         constexpr auto b1_block_desc_bk0_n_bk1 = GetB1BlockDescriptor_BK0PerBlock_NPerBlock_BK1();
 
         // A1 matrix blockwise copy
-        // auto a1_blockwise_copy = ThreadwiseTensorSliceTransfer_StaticToStatic<
-        //     FloatGemmAcc,
-        //     DataType,
-        //     decltype(acc_thread_desc_k0_m_k1),
-        //     decltype(a1_thread_desc_k0_m_k1),
-        //     tensor_operation::element_wise::PassThrough,
-        //     Sequence<A1ThreadSliceK0, A1ThreadSliceM, A1ThreadSliceK1>,
-        //     Sequence<1, 0, 2>,
-        //     2,
-        //     n4>{tensor_operation::element_wise::PassThrough{}};
+        auto a1_blockwise_copy = ThreadwiseTensorSliceTransfer_StaticToStatic<
+            FloatGemmAcc,
+            DataType,
+            decltype(acc_thread_desc_k0_m_k1),
+            decltype(a1_thread_desc_k0_m_k1),
+            tensor_operation::element_wise::PassThrough,
+            Sequence<A1ThreadSliceK0, A1ThreadSliceM, A1ThreadSliceK1>,
+            Sequence<1, 0, 2>,
+            2,
+            n4>{tensor_operation::element_wise::PassThrough{}};
 
         // B1 matrix blockwise copy
-        // auto b1_blockwise_copy =
-        //     ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
-        //                                         BElementwiseOperation,
-        //                                         tensor_operation::element_wise::PassThrough,
-        //                                         InMemoryDataOperationEnum::Set,
-        //                                         Sequence<B1K0, Gemm1NPerBlock, B1K1>,
-        //                                         B1BlockTransferThreadClusterLengths_BK0_N_BK1,
-        //                                         B1BlockTransferThreadClusterArrangeOrder,
-        //                                         DataType,
-        //                                         DataType,
-        //                                         decltype(v_grid_desc_n0_o_n1),
-        //                                         decltype(b1_block_desc_bk0_n_bk1),
-        //                                         B1BlockTransferSrcAccessOrder,
-        //                                         Sequence<1, 0, 2>,
-        //                                         B1BlockTransferSrcVectorDim,
-        //                                         2,
-        //                                         B1BlockTransferSrcScalarPerVector,
-        //                                         B1BlockTransferDstScalarPerVector_BK1,
-        //                                         1,
-        //                                         1,
-        //                                         B1ThreadTransferSrcResetCoordinateAfterRun,
-        //                                         true, // DstResetCoord
-        //                                         NumGemmKPrefetchStage>(
-        //         v_grid_desc_n0_o_n1,
-        //         make_multi_index(0, gemm1_n_block_data_idx_on_grid, 0),
-        //         b1_element_op,
-        //         b1_block_desc_bk0_n_bk1,
-        //         make_multi_index(0, 0, 0),
-        //         tensor_operation::element_wise::PassThrough{});
+        auto b1_blockwise_copy =
+            ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
+                                                BElementwiseOperation,
+                                                tensor_operation::element_wise::PassThrough,
+                                                InMemoryDataOperationEnum::Set,
+                                                Sequence<B1K0, Gemm1NPerBlock, B1K1>,
+                                                B1BlockTransferThreadClusterLengths_BK0_N_BK1,
+                                                B1BlockTransferThreadClusterArrangeOrder,
+                                                DataType,
+                                                DataType,
+                                                decltype(v_grid_desc_n0_o_n1),
+                                                decltype(b1_block_desc_bk0_n_bk1),
+                                                B1BlockTransferSrcAccessOrder,
+                                                Sequence<1, 0, 2>,
+                                                B1BlockTransferSrcVectorDim,
+                                                2,
+                                                B1BlockTransferSrcScalarPerVector,
+                                                B1BlockTransferDstScalarPerVector_BK1,
+                                                1,
+                                                1,
+                                                B1ThreadTransferSrcResetCoordinateAfterRun,
+                                                true, // DstResetCoord
+                                                NumGemmKPrefetchStage>(
+                v_grid_desc_n0_o_n1,
+                make_multi_index(0, gemm1_n_block_data_idx_on_grid, 0),
+                b1_element_op,
+                b1_block_desc_bk0_n_bk1,
+                make_multi_index(0, 0, 0),
+                tensor_operation::element_wise::PassThrough{});
 
         auto a1_thread_buf = make_static_buffer<AddressSpaceEnum::Vgpr, DataType>(
             a1_thread_desc_k0_m_k1.GetElementSpaceSize());
@@ -1068,7 +1107,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                  acc0_thread_origin[I4])}; // mperxdl
 
         //
-        // dV
+        // set up dV / dK Gemm (type 3 crr)
         //
 
         // P vgpr to lds: writes vgprs of a subgroup to LDS and transform into m0_n_m1
@@ -1375,7 +1414,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 #endif
 
         //
-        // dP
+        // dP (type 1 rcr)
         //
         constexpr auto y_thread_desc_m0_m1_o0_o1 = make_naive_tensor_descriptor_packed(make_tuple(
             I1, YDotYGrad_M_O::ThreadSliceLength_M, I1, YDotYGrad_M_O::ThreadSliceLength_O));
@@ -1429,30 +1468,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         const auto v_grid_desc_o0_n_o1 =
             PGradGemmTile_M_N_O::MakeVGridDesc_O0_N_O1(v_grid_desc_n0_o_n1);
 
-        // dP Gemm A matrix blockwise copy
+        // dP Gemm A position blockwise copy
         auto pgrad_gemm_tile_ygrad_blockwise_copy =
-            ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
-                                                tensor_operation::element_wise::PassThrough,
-                                                tensor_operation::element_wise::PassThrough,
-                                                InMemoryDataOperationEnum::Set,
-                                                Sequence<AK0, MPerBlock, AK1>,
-                                                ABlockTransferThreadClusterLengths_AK0_M_AK1,
-                                                ABlockTransferThreadClusterArrangeOrder,
-                                                DataType,
-                                                DataType,
-                                                decltype(ygrad_grid_desc_o0_m_o1),
-                                                decltype(a_block_desc_ak0_m_ak1), // reuse block buf
-                                                ABlockTransferSrcAccessOrder,
-                                                Sequence<1, 0, 2>,
-                                                ABlockTransferSrcVectorDim,
-                                                2,
-                                                ABlockTransferSrcScalarPerVector,
-                                                ABlockTransferDstScalarPerVector_AK1,
-                                                1,
-                                                1,
-                                                true, // SrcResetCoord
-                                                true, // DstResetCoord
-                                                NumGemmKPrefetchStage>(
+            typename Gemm0::template ABlockwiseCopy<decltype(ygrad_grid_desc_o0_m_o1)>(
                 ygrad_grid_desc_o0_m_o1,
                 make_multi_index(0, m_block_data_idx_on_grid, 0),
                 tensor_operation::element_wise::PassThrough{},
@@ -1460,30 +1478,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 make_multi_index(0, 0, 0),
                 tensor_operation::element_wise::PassThrough{});
 
-        // dP Gemm B matrix blockwise copy
+        // dP Gemm B position blockwise copy
         auto pgrad_gemm_tile_v_blockwise_copy =
-            ThreadGroupTensorSliceTransfer_v4r1<ThisThreadBlock,
-                                                tensor_operation::element_wise::PassThrough,
-                                                tensor_operation::element_wise::PassThrough,
-                                                InMemoryDataOperationEnum::Set,
-                                                Sequence<BK0, NPerBlock, BK1>,
-                                                BBlockTransferThreadClusterLengths_BK0_N_BK1,
-                                                BBlockTransferThreadClusterArrangeOrder,
-                                                DataType,
-                                                DataType,
-                                                decltype(v_grid_desc_o0_n_o1),
-                                                decltype(b_block_desc_bk0_n_bk1), // reuse block buf
-                                                BBlockTransferSrcAccessOrder,
-                                                Sequence<1, 0, 2>,
-                                                BBlockTransferSrcVectorDim,
-                                                2,
-                                                BBlockTransferSrcScalarPerVector,
-                                                BBlockTransferDstScalarPerVector_BK1,
-                                                1,
-                                                1,
-                                                true, // SrcResetCoord
-                                                true, // DstResetCoord
-                                                NumGemmKPrefetchStage>(
+            typename Gemm0::template BBlockwiseCopy<decltype(v_grid_desc_o0_n_o1)>(
                 v_grid_desc_o0_n_o1,
                 make_multi_index(0, 0, 0), // will loop over GemmN dimension
                 tensor_operation::element_wise::PassThrough{},
@@ -1491,7 +1488,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 make_multi_index(0, 0, 0),
                 tensor_operation::element_wise::PassThrough{});
 
-        auto pgrad_blockwise_gemm = typename PGradGemmTile_M_N_O::BlockwiseGemm{};
+        auto pgrad_blockwise_gemm = typename Gemm0::BlockwiseGemm{};
         auto pgrad_thread_buf     = pgrad_blockwise_gemm.GetCThreadBuffer();
         const auto pgrad_gemm_tile_ygrad_block_reset_copy_step =
             make_multi_index(-ygrad_grid_desc_o0_m_o1.GetLength(I0), 0, 0);
@@ -1681,7 +1678,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             make_tuple(I0, I0, I0, I0),
             y_dot_ygrad_thread_buf);
 
-#if 1
+#if 0
         if(hipBlockIdx_x < 4 && hipThreadIdx_x % 32 < 4)
         {
             printf("bid %zd tid %zd, y_dot_ygrad_thread_buf[0] = %f\n",
@@ -1928,7 +1925,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 pgrad_blockwise_gemm,
                 pgrad_thread_buf,
                 num_o_block_main_loop);
-#if 1
+#if 0
             if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
             {
                 printf("outer j loop idx %d, tid %zd, dP[0:3] = %f, %f, %f, %f\n",
@@ -1958,7 +1955,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                     acc_thread_buf[i] * (pgrad_thread_buf[i] - y_dot_ygrad_thread_buf[Number<m>{}]);
             });
 
-#if 1
+#if 0
             if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
             {
                 printf("outer j loop idx %d, tid %zd, dS[0:3] = %f, %f, %f, %f\n",
@@ -2008,7 +2005,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                             a1_thread_desc_k0_m_k1,
                             make_tuple(I0, I0, I0),
                             a1_thread_buf);
-#if 1
+#if 0
                         if(hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
                         {
                             printf("inner j loop idx %d, tid %zd, dS downcast[0:3] = %f, %f, %f, %f\n",
@@ -2071,7 +2068,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 // TODO ANT:
 // shuffle dQ and write
 
-#if 1
+#if 0
             if (hipBlockIdx_x == 0 && hipThreadIdx_x % 32 < 4)
             {
                 printf("tid %zd, dQ[0:3] = %f, %f, %f, %f\n",

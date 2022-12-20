@@ -34,12 +34,6 @@ For j=1:4 do:                                      // dQ(32VGPR)                
 end for                                            // dQ(32VGPR)                         //
 Shuffle dQ_m_k and write to HBM                    //                                    // dQ(16KB)
 
-dV0(0:63, 64)   = P^T(0:63, 128)   * dO_m_o(128, 64)
-dV1(64:127, 64) = P^T(64:127, 128) * dO_m_o(128, 64)
-
-K^T -> LDS(K0_N_K1)
-K   -> LDS(N0_K0K1_N1)
-
 Action items
 - attention forward: store max/sum (or max+sum) for backward kernel (Dan Yao)
 - attention backward: host verification (Anthony)
@@ -60,4 +54,9 @@ Implementation detail
 - Expose minimal amount of tuning parameters (MNKPerBlock, precision)
 - Naming convention will not follow GEMM abstractions; use QKV to avoid confusion
 
-Degree of freedom, Q_headdim == K_headdim == V_headdim?
+Q_headdim == K_headdim == V_headdim
+
+P_MNK / dP_MNO Gemm (Gemm0 rcr)
+Y_MON / dQ_MKN Gemm (Gemm1 rrr)
+dV_NOM / dK_NKM Gemm (Gemm2 crr)
+
