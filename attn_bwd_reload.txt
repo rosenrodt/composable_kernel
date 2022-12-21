@@ -55,8 +55,9 @@ Implementation detail
 - Naming convention will not follow GEMM abstractions; use QKV to avoid confusion
 
 Q_headdim == K_headdim == V_headdim
+( M x K )    ( N x K )    ( N x O )
 
-P_MNK / dP_MNO Gemm (Gemm0 rcr)
+S_MNK / dP_MNO Gemm (Gemm0 rcr)
 Y_MON / dQ_MKN Gemm (Gemm1 rrr)
 dV_NOM / dK_NKM Gemm (Gemm2 crr)
 
