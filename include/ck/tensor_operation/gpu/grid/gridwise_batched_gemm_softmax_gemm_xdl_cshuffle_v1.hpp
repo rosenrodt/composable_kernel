@@ -714,7 +714,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         static constexpr auto a_block_desc_m0_n0_m1_n1_m2_n2_n3_n4 =
             MakeABlockDesc_M0_N0_M1_N1_M2_N2_N3_N4();
 
-        using ASrcBlockIterator =
+        using ASrcBlockSliceWindowIterator =
             SpaceFillingCurve<Sequence<M0, N0, M1, N1>,
                               Sequence<0, 1, 2, 3>,
                               typename Gemm2Params_N_O_M::ABlockSliceLengths_M0_N0_M1_N1,
@@ -1331,16 +1331,21 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             static_cast<DataType*>(p_shared) + SharedMemTrait::b2_block_space_offset,
             Gemm2::b_block_desc_m0_o_m1.GetElementSpaceSize());
 
+        // dV: transform input and output tensor descriptors
+        const auto vgrad_grid_desc_n0_o0_n1_o1_n2_o2 =
+            Gemm2::MakeCGridDesc_N0_O0_N1_O1_N2_O2_O3_O4(vgrad_grid_desc_n_o);
+
         // dV: A matrix VGPR-to-LDS blockwise copy
-        auto p_thread_copy_vgpr_to_lds = typename Gemm2::ABlockwiseCopy{
+        auto vgrad_gemm_tile_p_thread_copy_vgpr_to_lds = typename Gemm2::ABlockwiseCopy{
             Gemm2::a_block_desc_m0_n0_m1_n1_m2_n2_n3_n4,
             Gemm2::MakeAThreadOriginOnBlock_M0_N0_M1_N1_M2_N2_N3_N4(),
             tensor_operation::element_wise::PassThrough{}};
 
-        constexpr auto sfc_p_m0_n0_m1_n1_m2_n2 = typename Gemm2::ASrcBlockIterator{};
+        constexpr auto vgrad_gemm_tile_p_block_slice_window_iterator =
+            typename Gemm2::ASrcBlockSliceWindowIterator{};
 
         // dV: B matrix global-to-LDS blockwise copy
-        auto ygrad_blockwise_copy =
+        auto vgrad_gemm_tile_ygrad_blockwise_copy =
             typename Gemm2::template BBlockwiseCopy<decltype(ygrad_grid_desc_m0_o_m1)>(
                 ygrad_grid_desc_m0_o_m1,
                 make_multi_index(m_block_data_idx_on_grid / Gemm2Params_N_O_M::B_M1,
@@ -1356,13 +1361,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
         auto vgrad_thread_buf = vgrad_blockwise_gemm.GetCThreadBuffer();
 
-        // dV: C output layout
-        const auto vgrad_grid_desc_n0_o0_n1_o1_n2_o2 =
-            Gemm2::MakeCGridDesc_N0_O0_N1_O1_N2_O2_O3_O4(vgrad_grid_desc_n_o);
-
-        constexpr auto vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4 =
-            Gemm2::c_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4;
-
+        // dV: C VGPR-to-global copy
         const auto vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4 =
             Gemm2::MakeCGridDesc_N0_O0_N1_O1_N2_O2_O3_O4(vgrad_grid_desc_n_o);
 
@@ -1370,12 +1369,13 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             Gemm2::GetCThreadOriginOnBlock_N0_O0_N1_O1_N2_O2_O3_O4() +
             make_multi_index(I0, block_work_idx[I1], I0, I0, I0, I0, I0, I0);
 
-        // dV: C VGPR-to-global copy
         auto vgrad_thread_copy_vgpr_to_global = typename Gemm2::template CBlockwiseCopy<decltype(
             vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4)>(
             vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
             vgrad_thread_origin_on_grid_n0_o0_n1_o1_n2_o2_o3_o4,
             tensor_operation::element_wise::PassThrough{});
+
+        // dK: transform input and output tensor descriptors
 
         //
         // set up Y dot dY
@@ -1619,18 +1619,22 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                              s_blockwise_gemm.GetWaveIdx()[I1]);
 
             constexpr index_t num_vgrad_gemm_loop = MPerBlock / Gemm2Params_N_O_M::Sum_M;
-            static_assert(sfc_p_m0_n0_m1_n1_m2_n2.GetNumOfAccess() == num_vgrad_gemm_loop, "");
+            static_assert(vgrad_gemm_tile_p_block_slice_window_iterator.GetNumOfAccess() ==
+                              num_vgrad_gemm_loop,
+                          "");
 
             // TODO: tune gemm2 pipeline
             // dV = P^T * dY
             vgrad_thread_buf.Clear();
             static_for<0, num_vgrad_gemm_loop, 1>{}([&](auto vgrad_gemm_loop_idx) { // gemm dV
                 // load VGrad Gemm B
-                ygrad_blockwise_copy.RunRead(ygrad_grid_desc_m0_o_m1, ygrad_grid_buf);
+                vgrad_gemm_tile_ygrad_blockwise_copy.RunRead(ygrad_grid_desc_m0_o_m1,
+                                                             ygrad_grid_buf);
 
                 // load VGrad Gemm A
                 const auto p_nd_idx =
-                    sfc_p_m0_n0_m1_n1_m2_n2.GetIndexTupleOfNumber(vgrad_gemm_loop_idx);
+                    vgrad_gemm_tile_p_block_slice_window_iterator.GetIndexTupleOfNumber(
+                        vgrad_gemm_loop_idx);
                 constexpr auto mwave_range =
                     make_tuple(p_nd_idx[I2], p_nd_idx[I2] + p_block_slice_lengths_m0_n0_m1_n1[I2]);
                 constexpr auto nwave_range =
@@ -1638,7 +1642,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
                 if(p_thread_copy_subgroup.IsBelong(mwave_range, nwave_range))
                 {
-                    p_thread_copy_vgpr_to_lds.Run(
+                    vgrad_gemm_tile_p_thread_copy_vgpr_to_lds.Run(
                         Gemm2::a_src_thread_desc_m0_n0_m1_n1_m2_n2_n3_n4,
                         make_tuple(p_nd_idx[I0], p_nd_idx[I1], I0, I0, I0, I0, I0, I0),
                         s_slash_p_thread_buf,
@@ -1648,18 +1652,19 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
                 // ygrad slice window is moved with MoveSrcSliceWindow() since it is dynamic buffer
                 // p slice window is moved by loop index
-                ygrad_blockwise_copy.MoveSrcSliceWindow(ygrad_grid_desc_m0_o_m1,
-                                                        Gemm2::b_block_slice_copy_step);
+                vgrad_gemm_tile_ygrad_blockwise_copy.MoveSrcSliceWindow(
+                    ygrad_grid_desc_m0_o_m1, Gemm2::b_block_slice_copy_step);
 
                 block_sync_lds(); // sync before write
-                ygrad_blockwise_copy.RunWrite(Gemm2::b_block_desc_m0_o_m1, gemm2_b_block_buf);
+                vgrad_gemm_tile_ygrad_blockwise_copy.RunWrite(Gemm2::b_block_desc_m0_o_m1,
+                                                              gemm2_b_block_buf);
 
                 block_sync_lds(); // sync before read
                 vgrad_blockwise_gemm.Run(gemm2_a_block_buf, gemm2_b_block_buf, vgrad_thread_buf);
 
             }); // end gemm dV
             // atomic_add dV
-            vgrad_thread_copy_vgpr_to_global.Run(vgrad_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4,
+            vgrad_thread_copy_vgpr_to_global.Run(Gemm2::c_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  make_tuple(I0, I0, I0, I0, I0, I0, I0, I0),
                                                  vgrad_thread_buf,
                                                  vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
@@ -1774,8 +1779,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             s_gemm_tile_k_blockwise_copy.MoveSrcSliceWindow(
                 k_grid_desc_k0_n_k1,
                 s_gemm_tile_b_block_reset_copy_step); // rewind K and step N
-            ygrad_blockwise_copy.MoveSrcSliceWindow(ygrad_grid_desc_m0_o_m1,
-                                                    Gemm2::b_block_reset_copy_step); // rewind M
+            vgrad_gemm_tile_ygrad_blockwise_copy.MoveSrcSliceWindow(
+                ygrad_grid_desc_m0_o_m1,
+                Gemm2::b_block_reset_copy_step); // rewind M
             vgrad_thread_copy_vgpr_to_global.MoveDstSliceWindow(
                 vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4, Gemm2::c_block_slice_copy_step); // step N
             pgrad_gemm_tile_ygrad_blockwise_copy.MoveSrcSliceWindow(
