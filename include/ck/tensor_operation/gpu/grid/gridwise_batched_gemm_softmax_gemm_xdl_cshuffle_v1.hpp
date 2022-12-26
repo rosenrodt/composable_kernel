@@ -859,7 +859,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
     // PGrad Gemm has the same layout as P = Q * K^T Gemm (A row-major B col-major)
     struct PGradGemmTile_M_N_O
     {
-        // TODO ANT:
+        // TODO:
         // Make all input tensors 2D and transform them into appropriate 3D form in kernel to make
         // things more concise
         template <typename YGradGridDesc_M0_O_M1_>
@@ -1406,9 +1406,9 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 tensor_operation::element_wise::PassThrough{});
 
         // dV: blockwise gemm
-        auto vgrad_blockwise_gemm = typename Gemm2::BlockwiseGemm{};
+        auto v_slash_k_grad_blockwise_gemm = typename Gemm2::BlockwiseGemm{};
 
-        auto vgrad_thread_buf = vgrad_blockwise_gemm.GetCThreadBuffer();
+        auto v_slash_k_grad_thread_buf = v_slash_k_grad_blockwise_gemm.GetCThreadBuffer();
 
         // dV: C VGPR-to-global copy
         const auto vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4 =
@@ -1449,7 +1449,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                 tensor_operation::element_wise::PassThrough{});
 
         // dK: blockwise gemm
-        /* reuse vgrad_blockwise_gemm, vgrad_thread_buf */
+        /* reuse v_slash_k_grad_blockwise_gemm, v_slash_k_grad_thread_buf */
 
         // dK: C VGPR-to-global copy
         const auto kgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4 =
@@ -1462,7 +1462,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
         auto kgrad_thread_copy_vgpr_to_global = typename Gemm2::template CBlockwiseCopy<decltype(
             kgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4)>(
             kgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
-            kgrad_thread_origin_on_grid_n0_o0_n1_o1_n2_o2_o3_o4, // TODO ANT: rename
+            kgrad_thread_origin_on_grid_n0_o0_n1_o1_n2_o2_o3_o4,
             tensor_operation::element_wise::PassThrough{});
 
         //
@@ -1710,7 +1710,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
 
             // TODO: tune gemm2 pipeline
             // dV = P^T * dY
-            vgrad_thread_buf.Clear();
+            v_slash_k_grad_thread_buf.Clear();
             static_for<0, num_gemm2_loop, 1>{}([&](auto gemm2_loop_idx) { // gemm dV
                 // load VGrad Gemm B
                 vgrad_gemm_tile_ygrad_blockwise_copy.RunRead(ygrad_grid_desc_m0_o_m1,
@@ -1746,13 +1746,14 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                               gemm2_b_block_buf);
 
                 block_sync_lds(); // sync before read
-                vgrad_blockwise_gemm.Run(gemm2_a_block_buf, gemm2_b_block_buf, vgrad_thread_buf);
+                v_slash_k_grad_blockwise_gemm.Run(
+                    gemm2_a_block_buf, gemm2_b_block_buf, v_slash_k_grad_thread_buf);
 
             }); // end gemm dV
             // atomic_add dV
             vgrad_thread_copy_vgpr_to_global.Run(Gemm2::c_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  make_tuple(I0, I0, I0, I0, I0, I0, I0, I0),
-                                                 vgrad_thread_buf,
+                                                 v_slash_k_grad_thread_buf,
                                                  vgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  vgrad_grid_buf);
 
@@ -1859,7 +1860,7 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
             } // end gemm dQ
 
             // dK = dS^T * dQ
-            vgrad_thread_buf.Clear();
+            v_slash_k_grad_thread_buf.Clear();
             static_for<0, num_gemm2_loop, 1>{}([&](auto gemm2_loop_idx) { // gemm dK
                 // load KGrad Gemm B
                 kgrad_gemm_tile_q_blockwise_copy.RunRead(q_grid_desc_m0_k_m1, q_grid_buf);
@@ -1887,8 +1888,8 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                         gemm2_a_block_buf);
                 }
 
-                // ygrad slice window is moved with MoveSrcSliceWindow() since it is dynamic buffer
-                // p slice window is moved by loop index
+                // kgrad slice window is moved with MoveSrcSliceWindow() since it is dynamic buffer
+                // sgrad slice window is moved by loop index
                 kgrad_gemm_tile_q_blockwise_copy.MoveSrcSliceWindow(q_grid_desc_m0_k_m1,
                                                                     Gemm2::b_block_slice_copy_step);
 
@@ -1897,13 +1898,14 @@ struct GridwiseBatchedGemmSoftmaxGemm_Xdl_CShuffle
                                                           gemm2_b_block_buf);
 
                 block_sync_lds(); // sync before read
-                vgrad_blockwise_gemm.Run(gemm2_a_block_buf, gemm2_b_block_buf, vgrad_thread_buf);
+                v_slash_k_grad_blockwise_gemm.Run(
+                    gemm2_a_block_buf, gemm2_b_block_buf, v_slash_k_grad_thread_buf);
 
             }); // end gemm dK
             // atomic_add dK
             kgrad_thread_copy_vgpr_to_global.Run(Gemm2::c_thread_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  make_tuple(I0, I0, I0, I0, I0, I0, I0, I0),
-                                                 vgrad_thread_buf,
+                                                 v_slash_k_grad_thread_buf,
                                                  kgrad_grid_desc_n0_o0_n1_o1_n2_o2_o3_o4,
                                                  kgrad_grid_buf);
 
